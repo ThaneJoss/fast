@@ -7,7 +7,7 @@ https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 → https://archive.ubuntu.com/ubuntu/dists/noble/InRelease
 ```
 
-- 只允许 `archive.ubuntu.com`、`security.ubuntu.com`，在 `src/index.js` 中直接导入并注册对应模块。
+- 只允许 `archive.ubuntu.com`、`security.ubuntu.com`，在 `index.js` 中直接导入并注册对应模块。
 - 每个 host 文件独立决定允许的 method，当前均为 GET / HEAD；上游使用 HTTPS。
 - 流式传输响应，保留状态码、缓存头和 Range / 条件请求，支持大文件及断点续传。
 - 不转发 Cookie、Authorization 等私密请求头，不下发上游 Cookie。
@@ -34,9 +34,9 @@ export default function ({ request, target, proxy }) {
 ```
 
 `request` 是原始请求，`target` 是已解析的 HTTPS 上游 URL，`proxy` 是公共代理函数。
-新增 host 时，添加对应文件，然后在 `src/index.js` 中导入并注册到 `HOSTS`。主入口直接调用模块，不统一限制 method。
+新增 host 时，添加对应文件，然后在 `index.js` 中导入并注册到 `HOSTS`。主入口直接调用模块，不统一限制 method。
 
-无构建脚本、无依赖、无生成文件。Wrangler 使用 `no_bundle` 和 ESModule 规则直接加载源码及 host 模块。公共代理函数处理请求头、流式响应和重定向白名单校验。未保留测试文件。
+无构建脚本、无依赖、无生成文件。Wrangler 使用 `no_bundle` 和 ESModule 规则直接加载源码及 host 模块。入口 `index.js` 位于项目根目录，使用 `./hosts/域名` 导入，保持本地路径与上传后的模块路径一致，避免 `../` 越过模块根目录。公共代理函数处理请求头、流式响应和重定向白名单校验。未保留测试文件。
 
 ## main 分支规则
 

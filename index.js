@@ -1,5 +1,5 @@
-import archive from '../hosts/archive.ubuntu.com';
-import security from '../hosts/security.ubuntu.com';
+import archive from './hosts/archive.ubuntu.com';
+import security from './hosts/security.ubuntu.com';
 
 const HOSTS = new Map([
   ['archive.ubuntu.com', archive],
