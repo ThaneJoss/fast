@@ -1,21 +1,22 @@
-// Filled from hosts/ by build.js.
-const HOSTS = new Map([/* HOST_HANDLERS */]);
+import archive from '../hosts/archive.ubuntu.com';
+import security from '../hosts/security.ubuntu.com';
+
+const HOSTS = new Map([
+  ['archive.ubuntu.com', archive],
+  ['security.ubuntu.com', security],
+]);
 const REQUEST_HEADERS = [
   'accept', 'accept-encoding', 'user-agent', 'range', 'if-range',
   'if-none-match', 'if-modified-since', 'if-match', 'if-unmodified-since',
 ];
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
-const error = (status, message) => new Response(message, { status });
+const error = status => new Response(null, { status });
 
 export default {
   async fetch(request) {
-    if (!['GET', 'HEAD'].includes(request.method)) {
-      return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
-    }
-
     const incoming = new URL(request.url);
     const [, host, path = '/'] = incoming.pathname.match(/^\/([^/]+)(\/.*)?$/) ?? [];
-    if (!HOSTS.has(host)) return error(403, 'Host not allowed');
+    if (!HOSTS.has(host)) return error(403);
 
     // Assign pathname separately: a path beginning with // must never change the host.
     const target = new URL(`https://${host}`);
@@ -24,7 +25,7 @@ export default {
     try {
       return await HOSTS.get(host)({ request, target, proxy });
     } catch {
-      return error(502, 'Upstream unavailable');
+      return error(502);
     }
   },
 };
@@ -33,7 +34,7 @@ async function proxy(request, target) {
   // Host handlers may rewrite paths, but the transport still enforces the allowlist.
   if (target.protocol !== 'https:' || !HOSTS.has(target.hostname)
     || target.port || target.username || target.password) {
-    return error(403, 'Host not allowed');
+    return error(403);
   }
   const incoming = new URL(request.url);
   const headers = new Headers();
@@ -49,7 +50,7 @@ async function proxy(request, target) {
     if (!['http:', 'https:'].includes(next.protocol) || !HOSTS.has(next.hostname)
       || next.port || next.username || next.password) {
       await response.body?.cancel();
-      return error(502, 'Upstream redirect not allowed');
+      return error(502);
     }
     response.headers.set('location', `${incoming.origin}/${next.hostname}${next.pathname}${next.search}${next.hash}`);
   }
