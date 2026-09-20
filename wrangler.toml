@@ -1,0 +1,6 @@
+name = "fast"
+main = "src/index.js"
+compatibility_date = "2026-09-20"
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "fast.thanejoss.com", custom_domain = true }]
