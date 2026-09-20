@@ -1,5 +1,5 @@
 name = "fast"
-main = "src/index.js"
+main = "index.js"
 no_bundle = true
 base_dir = "."
 compatibility_date = "2026-09-20"
@@ -9,7 +9,7 @@ routes = [{ pattern = "fast.thanejoss.com", custom_domain = true }]
 
 [[rules]]
 type = "ESModule"
-globs = ["src/**/*.js", "hosts/*"]
+globs = ["hosts/*"]
 fallthrough = false
 
 [observability]
