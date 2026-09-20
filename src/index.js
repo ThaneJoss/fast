@@ -1,4 +1,5 @@
-const HOSTS = new Set(['archive.ubuntu.com', 'security.ubuntu.com']);
+// Filled from hosts/ by build.js.
+const HOSTS = new Map([/* HOST_HANDLERS */]);
 const REQUEST_HEADERS = [
   'accept', 'accept-encoding', 'user-agent', 'range', 'if-range',
   'if-none-match', 'if-modified-since', 'if-match', 'if-unmodified-since',
@@ -20,27 +21,37 @@ export default {
     const target = new URL(`https://${host}`);
     target.pathname = path;
     target.search = incoming.search;
-    const headers = new Headers();
-    for (const name of REQUEST_HEADERS) {
-      if (request.headers.has(name)) headers.set(name, request.headers.get(name));
-    }
-
     try {
-      const upstream = await fetch(target, { method: request.method, headers, redirect: 'manual' });
-      const response = new Response(upstream.body, upstream);
-      response.headers.delete('set-cookie');
-      if (REDIRECTS.has(response.status) && response.headers.has('location')) {
-        const next = new URL(response.headers.get('location'), target);
-        if (!['http:', 'https:'].includes(next.protocol) || !HOSTS.has(next.hostname)
-          || next.port || next.username || next.password) {
-          await response.body?.cancel();
-          return error(502, 'Upstream redirect not allowed');
-        }
-        response.headers.set('location', `${incoming.origin}/${next.hostname}${next.pathname}${next.search}${next.hash}`);
-      }
-      return response;
+      return await HOSTS.get(host)({ request, target, proxy });
     } catch {
       return error(502, 'Upstream unavailable');
     }
   },
 };
+
+async function proxy(request, target) {
+  // Host handlers may rewrite paths, but the transport still enforces the allowlist.
+  if (target.protocol !== 'https:' || !HOSTS.has(target.hostname)
+    || target.port || target.username || target.password) {
+    return error(403, 'Host not allowed');
+  }
+  const incoming = new URL(request.url);
+  const headers = new Headers();
+  for (const name of REQUEST_HEADERS) {
+    if (request.headers.has(name)) headers.set(name, request.headers.get(name));
+  }
+
+  const upstream = await fetch(target, { method: request.method, headers, redirect: 'manual' });
+  const response = new Response(upstream.body, upstream);
+  response.headers.delete('set-cookie');
+  if (REDIRECTS.has(response.status) && response.headers.has('location')) {
+    const next = new URL(response.headers.get('location'), target);
+    if (!['http:', 'https:'].includes(next.protocol) || !HOSTS.has(next.hostname)
+      || next.port || next.username || next.password) {
+      await response.body?.cancel();
+      return error(502, 'Upstream redirect not allowed');
+    }
+    response.headers.set('location', `${incoming.origin}/${next.hostname}${next.pathname}${next.search}${next.hash}`);
+  }
+  return response;
+}
