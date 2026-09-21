@@ -1,14 +1,23 @@
-#!/usr/bin/env bash
-# setup
-# archive.ubuntu.com / security.ubuntu.com
-setup() {
-  set -euo pipefail
-  sed -Ei '/^URIs:/{:uri;s#([[:space:]])https?://((archive|security)\.ubuntu\.com)(/|[[:space:]]|$)#\1https://fast.thanejoss.com/\2\4#;t uri;}' /etc/apt/sources.list.d/ubuntu.sources
-  apt-get update -qq
-}
+#Setup
+. /etc/os-release
 
-if (( EUID == 0 )); then
-  setup
-else
-  sudo bash -c "$(declare -f setup); setup"
-fi
+## archive.ubuntu.com
+cat >> /etc/apt/sources.list.d/ubuntu.sources <<EOF
+
+
+Types: deb
+URIs: https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/
+Suites: ${VERSION_CODENAME} ${VERSION_CODENAME}-updates ${VERSION_CODENAME}-backports
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+EOF
+
+## security.ubuntu.com
+cat >> /etc/apt/sources.list.d/ubuntu.sources <<EOF
+
+Types: deb
+URIs: https://fast.thanejoss.com/security.ubuntu.com/ubuntu/
+Suites: ${VERSION_CODENAME}-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+EOF
