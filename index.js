@@ -6,19 +6,15 @@ const HOSTS = new Map([
   ['archive.ubuntu.com', archive],
   ['security.ubuntu.com', security],
 ]);
-const REQUEST_HEADERS = [
-  'accept', 'accept-encoding', 'user-agent', 'range', 'if-range',
-  'if-none-match', 'if-modified-since', 'if-match', 'if-unmodified-since',
-];
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
-const error = status => new Response(null, { status });
+const error = status => new Response(String(status), { status });
 
 export default {
   async fetch(request, env) {
     const incoming = new URL(request.url);
     if (incoming.pathname === '/') {
       if (!['GET', 'HEAD'].includes(request.method)) {
-        return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
+        return new Response('405', { status: 405, headers: { Allow: 'GET, HEAD' } });
       }
       return new Response(request.method === 'HEAD' ? null : setup.replaceAll('__FAST_VERSION__', env.CF_VERSION_METADATA.id), {
         headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -46,14 +42,11 @@ async function proxy(request, target) {
     return error(403);
   }
   const incoming = new URL(request.url);
-  const headers = new Headers();
-  for (const name of REQUEST_HEADERS) {
-    if (request.headers.has(name)) headers.set(name, request.headers.get(name));
-  }
+  const headers = new Headers(request.headers);
+  headers.set('host', target.host);
 
   const upstream = await fetch(target, { method: request.method, headers, redirect: 'manual' });
   const response = new Response(upstream.body, upstream);
-  response.headers.delete('set-cookie');
   if (REDIRECTS.has(response.status) && response.headers.has('location')) {
     const next = new URL(response.headers.get('location'), target);
     if (!['http:', 'https:'].includes(next.protocol) || !HOSTS.has(next.hostname)
