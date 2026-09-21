@@ -2,9 +2,7 @@
 . /etc/os-release
 
 ## archive.ubuntu.com
-cat >> /etc/apt/sources.list.d/ubuntu.sources <<EOF
-
-
+cat > /etc/apt/sources.list.d/ubuntu.sources <<EOF
 Types: deb
 URIs: https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/
 Suites: ${VERSION_CODENAME} ${VERSION_CODENAME}-updates ${VERSION_CODENAME}-backports
