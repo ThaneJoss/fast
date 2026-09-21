@@ -13,7 +13,7 @@ https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 - 流式传输响应，保留状态码、缓存头和 Range / 条件请求，支持大文件及断点续传。
 - 转发 Cookie、Authorization 等请求头，Host 改为目标源域名及端口；保留上游 Set-Cookie。
 - 白名单内的 HTTP / HTTPS 重定向改写回代理地址，保留端口、用户名和密码；HTTP 目标在下一次代理请求中升级为 HTTPS。其他域名或协议的重定向返回 502。
-- 不在 IP 白名单或目标域名白名单内的请求返回 403，上游连接失败返回 502；代理自身的错误响应体只返回对应状态码。D1 校验失败时返回 503。
+- 不在 IP 白名单或目标域名白名单内的请求返回 HTTP 403，上游连接失败返回 HTTP 502，D1 校验失败时返回 HTTP 503；这些错误响应体为空，错误由 HTTP 状态码表示。
 - 所有经过 Worker 的请求写入 D1 访问日志，包括拒绝请求和管理请求。日志通过 `waitUntil` 异步写入，不读取或缓冲下载响应体；写入失败输出 Worker 错误日志。
 - 使用原生 `HTMLRewriter` 流式改写 HTML 的 `href`、`src`：`/` 开头的根路径，以及指向白名单域名的 HTTP / HTTPS、`//域名/路径` 地址，改为对应代理地址。普通相对路径、查询参数、锚点和其他域名的地址保持原样。
 

@@ -9,7 +9,7 @@ const HOSTS = new Map([
   ['registry.npmjs.org', npm],
 ]);
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
-const error = status => new Response(String(status), { status });
+const error = status => new Response(null, { status });
 
 export default {
   async fetch(request, env) {
