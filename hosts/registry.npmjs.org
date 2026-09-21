@@ -1,0 +1,46 @@
+const REGISTRY_URLS = ['"https://registry.npmjs.org/', '"http://registry.npmjs.org/'];
+
+export default async function ({ request, target, proxy }) {
+  const response = await proxy(request, target);
+  if (response.status !== 200
+    || !/^application\/(?:json|vnd\.npm\.install-v1\+json)(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) {
+    return response;
+  }
+
+  // The transformed representation no longer has the upstream length or validator.
+  response.headers.delete('content-length');
+  response.headers.delete('content-encoding');
+  response.headers.delete('etag');
+  if (!response.body) return response;
+
+  const replacement = `"${new URL(request.url).origin}/registry.npmjs.org/`;
+  const rewrite = text => {
+    for (const prefix of REGISTRY_URLS) text = text.replaceAll(prefix, () => replacement);
+    return text;
+  };
+  let pending = '';
+  const body = response.body
+    .pipeThrough(new TextDecoderStream())
+    .pipeThrough(new TransformStream({
+      transform(chunk, controller) {
+        pending += chunk;
+        // Keep only a possible URL prefix split across chunks, never a whole packument.
+        let end = pending.length;
+        for (const prefix of REGISTRY_URLS) {
+          for (let length = Math.min(prefix.length - 1, pending.length); length > 0; length--) {
+            if (pending.endsWith(prefix.slice(0, length))) {
+              end = Math.min(end, pending.length - length);
+              break;
+            }
+          }
+        }
+        controller.enqueue(rewrite(pending.slice(0, end)));
+        pending = pending.slice(end);
+      },
+      flush(controller) {
+        controller.enqueue(rewrite(pending));
+      },
+    }))
+    .pipeThrough(new TextEncoderStream());
+  return new Response(body, response);
+}
