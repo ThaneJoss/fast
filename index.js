@@ -21,7 +21,8 @@ export default {
         return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
       }
       return new Response(request.method === 'HEAD' ? null : setup, {
-        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store',
+          'CDN-Cache-Control': 'no-store', 'Cloudflare-CDN-Cache-Control': 'no-store' },
       });
     }
     const [, host, path = '/'] = incoming.pathname.match(/^\/([^/]+)(\/.*)?$/) ?? [];
@@ -51,9 +52,14 @@ async function proxy(request, target) {
     if (request.headers.has(name)) headers.set(name, request.headers.get(name));
   }
 
-  const upstream = await fetch(target, { method: request.method, headers, redirect: 'manual' });
+  const upstream = await fetch(target, { method: request.method, headers, redirect: 'manual', cache: 'no-store' });
   const response = new Response(upstream.body, upstream);
   response.headers.delete('set-cookie');
+  response.headers.delete('expires');
+  response.headers.delete('age');
+  for (const name of ['Cache-Control', 'CDN-Cache-Control', 'Cloudflare-CDN-Cache-Control']) {
+    response.headers.set(name, 'no-store');
+  }
   if (REDIRECTS.has(response.status) && response.headers.has('location')) {
     const next = new URL(response.headers.get('location'), target);
     if (!['http:', 'https:'].includes(next.protocol) || !HOSTS.has(next.hostname)

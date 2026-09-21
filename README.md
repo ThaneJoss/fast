@@ -9,7 +9,8 @@ https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 
 - 只允许 `archive.ubuntu.com`、`security.ubuntu.com`，在 `index.js` 中直接导入并注册对应模块。
 - 每个 host 文件独立决定允许的 method，当前均为 GET / HEAD；上游使用 HTTPS。
-- 流式传输响应，保留状态码、缓存头和 Range / 条件请求，支持大文件及断点续传。
+- 流式传输响应，保留状态码和 Range / 条件请求，支持大文件及断点续传。
+- 上游请求使用 `cache: 'no-store'` 绕过 Worker 子请求缓存；主页与代理响应通过 Cache-Control / CDN-Cache-Control / Cloudflare-CDN-Cache-Control 声明不缓存，覆盖上游缓存策略。
 - 不转发 Cookie、Authorization 等私密请求头，不下发上游 Cookie。
 - 上游重定向只允许白名单内的标准 HTTP / HTTPS 地址，并改写回代理地址；HTTP 目标在下一次代理请求中升级为 HTTPS。其他目标返回 502。
 - 非白名单返回 403，不支持的方法返回 405，上游连接失败返回 502；代理自身的错误响应体为空，不返回原因，不记录日志。
