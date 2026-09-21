@@ -12,5 +12,10 @@ type = "ESModule"
 globs = ["hosts/*"]
 fallthrough = false
 
+[[rules]]
+type = "Text"
+globs = ["setup.sh"]
+fallthrough = false
+
 [observability]
 enabled = false

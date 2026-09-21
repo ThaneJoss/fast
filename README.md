@@ -17,6 +17,21 @@ https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 
 `wrangler.toml` 已声明目标域名和 Worker 入口；未执行部署或 DNS 操作。
 
+## 一键配置 Ubuntu 源
+
+```bash
+curl -fsSL https://fast.thanejoss.com/ | bash
+```
+
+主页返回 `setup.sh` 的纯文本内容。脚本使用 deb822 格式，只修改
+`/etc/apt/sources.list.d/ubuntu.sources` 中 `URIs:` 行上的
+`archive.ubuntu.com` 和 `security.ubuntu.com`，然后执行 `apt-get update -qq`。
+普通用户自动调用 `sudo`，可能需要输入密码。
+
+直接修改，不备份；保留 Suites、Components、Signed-By 和原有路径。
+重复执行不会重复添加代理前缀。不处理旧的 `sources.list`、地区镜像或第三方源。
+要求系统已有标准的 `ubuntu.sources` 文件。
+
 ## 按 host 组织逻辑
 
 - `hosts/archive.ubuntu.com`
