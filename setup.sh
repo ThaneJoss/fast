@@ -1,4 +1,5 @@
 #Setup
+# curl -fsSL https://fast.thanejoss.com/ | sudo bash
 
 ## archive.ubuntu.com
 grep -qE '^URIs:.*[[:space:]]https://fast[.]thanejoss[.]com/archive[.]ubuntu[.]com/ubuntu/?([[:space:]]|$)' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || {
