@@ -28,13 +28,13 @@ curl -fsSL https://fast.thanejoss.com/ | bash
 
 普通用户使用 `curl -fsSL https://fast.thanejoss.com/ | sudo bash`。
 
-主页返回带版本标记的 `setup.sh`。Worker 通过 `CF_VERSION_METADATA.id` 将模板中的 `__FAST_VERSION__` 自动替换为当前版本 ID，配置块使用配对的 `### fast.thanejoss.com Version <版本 ID>` 和 `### End Version <版本 ID>`；同一版本的标记固定，部署新版本时自动更新，无需手动维护。
-脚本逐行读取 `/etc/apt/sources.list.d/ubuntu.sources`，用 Bash 字符串相等判断完整结束标记；匹配当前版本就直接退出，不用 `grep` 检查源地址。
-没有当前结束标记时，直接按开始、结束标记删除旧配置块，再按域名清理 `/etc/apt/sources.list`、`/etc/apt/sources.list.d/*.list` 和 `*.sources` 中对应官方直连源及未带标记的旧代理条目，然后追加新的两组代理源。两个标记仅包住本脚本追加的源，块外的其他源保留。
+主页返回带版本标记的 `setup.sh`。Worker 通过 `CF_VERSION_METADATA.id` 将模板中的 `__FAST_VERSION__` 自动替换为当前版本 ID。每个 host 各有一对标记：开始标记分别为 `### fast.thanejoss.com/archive.ubuntu.com Version <版本 ID>`、`### fast.thanejoss.com/security.ubuntu.com Version <版本 ID>`，每组末尾都是 `### End Version <版本 ID>`。同一版本的标记固定，部署新版本时自动更新，无需手动维护。
+每个 host 独立逐行读取 `/etc/apt/sources.list.d/ubuntu.sources`，用 Bash 字符串相等判断属于自己的当前开始、结束标记；匹配后只跳过该组，继续处理另一组，不用 `grep` 检查源地址。
+某组没有完整的当前标记时，只删除该 host 的旧标记块，再清理 `/etc/apt/sources.list`、`/etc/apt/sources.list.d/*.list` 和 `*.sources` 中对应官方直连源及旧代理条目，然后追加该组的独立配置块。每对标记只包住一个 host 的源，其他 host 和镜像源保留。
 `.list` 删除对应源行；`.sources` 仅移除对应 URI，没有剩余 URI 时删除整段。同段的其他镜像 URI、阿里云等其他源保留。
 各域名继续独立分块，使用普通命令块 `{ ...; }`，在各自追加块中读取 `/etc/os-release` 获取版本代号；不使用子 shell。
 
-重复执行不会重复追加；结束标记放在第二组源末尾，没有结束标记就不视为已完成，重试会替换未写完的配置块。不备份、不刷新索引，不含函数或提示输出。
+重复执行不会重复追加；每组单独写入结束标记，没有配对的结束标记就不视为该组已完成，重试只补齐未完成的组。不备份、不刷新索引，不含函数或提示输出。
 
 ## 按 host 组织逻辑
 
@@ -59,13 +59,6 @@ export default function ({ request, target, proxy }) {
 
 ## main 分支规则
 
-`.github/main-ruleset.json` 是待启用的规则配置，**提交此文件不会自动启用 GitHub 规则**。
-要求所有 main 更新经过 PR，无绕过角色，禁止强推和删除；不强制他人审批，便于个人仓库使用。
-
-仓库管理员可在 Settings → Rules → Rulesets 导入此 JSON，或使用具备仓库 Administration 写权限的 GitHub CLI：
-
-```sh
-gh api --method POST repos/ThaneJoss/fast/rulesets --input .github/main-ruleset.json
-```
-
-本次 GitHub 连接不提供规则管理写入能力，因此规则尚未启用。空仓库仅先初始化 README 基础提交，功能代码通过 PR 提交。
+GitHub 已启用 [main requires PR](https://github.com/ThaneJoss/fast/rules/23754233) 规则。
+所有 main 更新必须经过 PR，无绕过角色，禁止强推和删除；不强制他人审批。
+规则直接在 GitHub 的 Settings → Rules → Rulesets 中管理。
