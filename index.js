@@ -1,3 +1,4 @@
+import setup from './setup.sh';
 import archive from './hosts/archive.ubuntu.com';
 import security from './hosts/security.ubuntu.com';
 
@@ -15,6 +16,14 @@ const error = status => new Response(null, { status });
 export default {
   async fetch(request) {
     const incoming = new URL(request.url);
+    if (incoming.pathname === '/') {
+      if (!['GET', 'HEAD'].includes(request.method)) {
+        return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
+      }
+      return new Response(request.method === 'HEAD' ? null : setup, {
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
     const [, host, path = '/'] = incoming.pathname.match(/^\/([^/]+)(\/.*)?$/) ?? [];
     if (!HOSTS.has(host)) return error(403);
 

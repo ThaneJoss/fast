@@ -17,6 +17,21 @@ https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 
 `wrangler.toml` 已声明目标域名和 Worker 入口；未执行部署或 DNS 操作。
 
+## 一键配置 Ubuntu 源
+
+以 root 执行：
+
+```bash
+curl -fsSL https://fast.thanejoss.com/ | bash
+```
+
+普通用户使用 `curl -fsSL https://fast.thanejoss.com/ | sudo bash`。
+
+主页返回 `setup.sh`。脚本从 `/etc/os-release` 读取 Ubuntu 版本代号，
+按域名分段向 `/etc/apt/sources.list.d/ubuntu.sources` 追加 deb822 配置。
+
+仅追加：保留原有源，重复执行会重复追加。不备份、不刷新索引，不含函数、条件判断或提示输出。
+
 ## 按 host 组织逻辑
 
 - `hosts/archive.ubuntu.com`
