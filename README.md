@@ -13,7 +13,8 @@ https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 - 不转发 Cookie、Authorization 等私密请求头，不下发上游 Cookie。
 - 上游重定向只允许白名单内的标准 HTTP / HTTPS 地址，并改写回代理地址；HTTP 目标在下一次代理请求中升级为 HTTPS。其他目标返回 502。
 - 非白名单返回 403，不支持的方法返回 405，上游连接失败返回 502；代理自身的错误响应体为空，不返回原因，不记录日志。
-- 不改写 HTML 中的链接；本项目用于软件源资源下载。
+- 使用原生 `HTMLRewriter` 流式改写 HTML 的 `href`、`src`：`/` 开头的根路径，以及指向白名单域名的 HTTP / HTTPS、`//域名/路径` 地址，改为对应代理地址。普通相对路径、查询参数、锚点和其他域名的地址保持原样。
+- 例如 `/icons/folder.gif` 改为 `https://fast.thanejoss.com/archive.ubuntu.com/icons/folder.gif`，`/` 改为 `https://fast.thanejoss.com/archive.ubuntu.com/`，`pool/` 保持原样。HTML 改写时移除原始长度和 ETag；软件源索引、软件包及 206 分段响应不改写内容。
 
 `wrangler.toml` 已声明目标域名和 Worker 入口；未执行部署或 DNS 操作。
 
@@ -27,10 +28,13 @@ curl -fsSL https://fast.thanejoss.com/ | bash
 
 普通用户使用 `curl -fsSL https://fast.thanejoss.com/ | sudo bash`。
 
-主页返回 `setup.sh`。脚本按域名检查 `/etc/apt/sources.list.d/ubuntu.sources` 的 `URIs:` 行，已有对应代理地址就跳过，仅追加缺少的源。
-各域名使用普通命令块 `{ ...; }`，仅在需要追加时读取 `/etc/os-release` 获取版本代号；不使用子 shell。
+主页返回带版本标记的 `setup.sh`。Worker 通过 `CF_VERSION_METADATA.id` 将模板中的 `__FAST_VERSION__` 自动替换为当前版本 ID，配置块使用配对的 `### fast.thanejoss.com Version <版本 ID>` 和 `### End Version <版本 ID>`；同一版本的标记固定，部署新版本时自动更新，无需手动维护。
+脚本逐行读取 `/etc/apt/sources.list.d/ubuntu.sources`，用 Bash 字符串相等判断完整结束标记；匹配当前版本就直接退出，不用 `grep` 检查源地址。
+没有当前结束标记时，直接按开始、结束标记删除旧配置块，再按域名清理 `/etc/apt/sources.list`、`/etc/apt/sources.list.d/*.list` 和 `*.sources` 中对应官方直连源及未带标记的旧代理条目，然后追加新的两组代理源。两个标记仅包住本脚本追加的源，块外的其他源保留。
+`.list` 删除对应源行；`.sources` 仅移除对应 URI，没有剩余 URI 时删除整段。同段的其他镜像 URI、阿里云等其他源保留。
+各域名继续独立分块，使用普通命令块 `{ ...; }`，在各自追加块中读取 `/etc/os-release` 获取版本代号；不使用子 shell。
 
-保留文件原有内容，重复执行不会重复追加；不覆盖、不备份、不刷新索引，不含函数或提示输出。
+重复执行不会重复追加；结束标记放在第二组源末尾，没有结束标记就不视为已完成，重试会替换未写完的配置块。不备份、不刷新索引，不含函数或提示输出。
 
 ## 按 host 组织逻辑
 
@@ -51,7 +55,7 @@ export default function ({ request, target, proxy }) {
 `request` 是原始请求，`target` 是已解析的 HTTPS 上游 URL，`proxy` 是公共代理函数。
 新增 host 时，添加对应文件，然后在 `index.js` 中导入并注册到 `HOSTS`。主入口直接调用模块，不统一限制 method。
 
-无构建脚本、无依赖、无生成文件。Wrangler 使用 `no_bundle` 和 ESModule 规则直接加载源码及 host 模块。入口 `index.js` 位于项目根目录，使用 `./hosts/域名` 导入，保持本地路径与上传后的模块路径一致，避免 `../` 越过模块根目录。公共代理函数处理请求头、流式响应和重定向白名单校验。未保留测试文件。
+无构建脚本、无依赖、无生成文件。Wrangler 使用 `no_bundle` 和 ESModule 规则直接加载源码及 host 模块。入口 `index.js` 位于项目根目录，使用 `./hosts/域名` 导入，保持本地路径与上传后的模块路径一致，避免 `../` 越过模块根目录。公共代理函数处理请求头、流式响应、HTML 地址改写和重定向白名单校验。未保留测试文件。
 
 ## main 分支规则
 

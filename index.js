@@ -14,13 +14,13 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 const error = status => new Response(null, { status });
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const incoming = new URL(request.url);
     if (incoming.pathname === '/') {
       if (!['GET', 'HEAD'].includes(request.method)) {
         return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
       }
-      return new Response(request.method === 'HEAD' ? null : setup, {
+      return new Response(request.method === 'HEAD' ? null : setup.replaceAll('__FAST_VERSION__', env.CF_VERSION_METADATA.id), {
         headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
       });
     }
@@ -62,6 +62,28 @@ async function proxy(request, target) {
       return error(502);
     }
     response.headers.set('location', `${incoming.origin}/${next.hostname}${next.pathname}${next.search}${next.hash}`);
+  }
+  if (response.status !== 206 && /^text\/html(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) {
+    response.headers.delete('content-length');
+    response.headers.delete('etag');
+    if (!response.body) return response;
+
+    const rewriter = new HTMLRewriter();
+    for (const attribute of ['href', 'src']) {
+      rewriter.on(`[${attribute}]`, {
+        element(element) {
+          const value = element.getAttribute(attribute).trim();
+          if (!/^(\/|https?:\/\/)/i.test(value)) return;
+
+          const next = URL.parse(value, target.href);
+          if (!next || !['http:', 'https:'].includes(next.protocol) || !HOSTS.has(next.hostname)
+            || next.port || next.username || next.password) return;
+
+          element.setAttribute(attribute, `${incoming.origin}/${next.hostname}${next.pathname}${next.search}${next.hash}`);
+        },
+      });
+    }
+    return rewriter.transform(response);
   }
   return response;
 }
