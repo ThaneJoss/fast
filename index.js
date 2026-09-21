@@ -22,13 +22,13 @@ export default {
           decision = 'allowed';
           response = await proxy.fetch(request, env);
         } else {
-          response = new Response('403', { status: 403, headers: { 'Cache-Control': 'no-store' } });
+          response = new Response(null, { status: 403, headers: { 'Cache-Control': 'no-store' } });
         }
       }
     } catch (error) {
       console.error(JSON.stringify({ event: 'request_failed', message: error.message }));
       decision = 'error';
-      response = new Response('503', { status: 503, headers: { 'Cache-Control': 'no-store' } });
+      response = new Response(null, { status: 503, headers: { 'Cache-Control': 'no-store' } });
     }
 
     ctx.waitUntil(logAccess(env.DB, {
