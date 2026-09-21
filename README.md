@@ -23,10 +23,12 @@ https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 
 访问 `https://fast.thanejoss.com/admin`：
 
-- **IP 白名单**：添加、编辑、启停、删除 IPv4 / IPv6 地址，设置分组与备注，按 IP、备注、分组或状态筛选。可将当前 IP 填入表单后保存。
+- **IP 管理**：默认按 IP 汇总全部访问，显示请求次数、放行 / 拒绝 / 管理 / 异常计数、最近路径和自动标签。直接在访问卡片上放行、取消放行、修改分组与备注，无需手动输入 IP。没有访问记录的已有配置也会保留。
 - **IP 分组**：维护“家里、公司、朋友”等来源分组。删除分组会将成员移至“未分组”，保留 IP 及其启用状态。
-- **路径分类**：每个分类可设置多个路径前缀，逐行填写；按路径段匹配，较长的前缀优先。例如 `/registry.npmjs.org/pkg` 匹配其自身及子路径，不匹配 `/registry.npmjs.org/pkg-other`。`/` 是所有路径的默认分类。预置 Ubuntu、npm、其他路径、管理后台四类。
-- **访问日志**：按 IP、IP 分组、路径分类、访问结果、路径片段及时间范围组合筛选，每页 50 条。分类名称保存为访问时的快照，修改或删除分类不会改变历史日志。
+- **路径标签**：根据请求路径自动标记 Ubuntu、npm、初始化脚本、管理后台或其他路径，显示在 IP 汇总卡片与逐条日志中，无需维护分类或匹配规则。历史记录同样适用。
+- **访问日志**：默认每个 IP 一张汇总卡片，展开查看逐条请求，每次加载 50 条。可用平铺选项组合筛选当前访问权限、当前 IP 分组、路径标签、访问结果和最近 24 小时 / 7 天 / 30 天，支持搜索 IP、备注与路径片段。
+
+两个页面均先对全部匹配记录按 IP 汇总，再按最近访问排序，每页 20 个 IP；翻页和展开明细沿用同一个日志边界，点击“刷新数据”查看新请求。设置分组与备注不会改变访问权限。历史日志保留访问时的分组名称；筛选分组按 IP 当前归属，便于管理。页面沿用 webapps 的蓝白配色、卡片和标签样式。
 
 IP 使用 Cloudflare 的 `CF-Connecting-IP`，不接受 `X-Forwarded-For` 或 `X-Real-IP` 作为白名单依据。支持单个完整 IP，IPv6 自动规范化；不支持 CIDR 网段。若域名启用了 Pseudo IPv4 的 Overwrite Headers 模式，建议改为 Off / Add Header，以便按真实 IPv6 管理白名单。
 
@@ -41,7 +43,7 @@ npm install
 npm run dev
 ```
 
-打开 `http://localhost:8787/admin`，将页面显示的当前 IP 加入白名单后访问 `/`。`npm run dev` 会先应用本地 D1 迁移；本地数据库与线上数据库独立。
+打开 `http://localhost:8787/admin`，在当前 IP 的访问卡片上点击“放行 IP”后访问 `/`。`npm run dev` 会先应用本地 D1 迁移；本地数据库与线上数据库独立。
 
 首次上线，在已登录 Cloudflare 的环境执行：
 
@@ -57,7 +59,9 @@ npm run db:migrate:remote
 npm run deploy
 ```
 
-若 `fast-access` 已存在，使用 `npx wrangler d1 list` 查到其 ID 后更新现有绑定，无需重复创建。先应用远端迁移，再发布 Worker；初始 IP 白名单为空，上线后从 `/admin` 添加允许访问的 IP。
+若 `fast-access` 已存在，使用 `npx wrangler d1 list` 查到其 ID 后更新现有绑定，无需重复创建。先应用远端迁移，再发布 Worker；初始 IP 白名单为空，上线后从 `/admin` 的访问记录中放行 IP。
+
+从旧版升级时也需要先运行 `npm run db:migrate:remote`：`0002_log_path_tags.sql` 为新旧日志增加自动路径标签与索引，兼容旧 Worker 继续写入。旧路径分类数据保留在数据库中，但不再用于管理或日志分类。
 
 ```bash
 npm run types       # 配置变更后生成本地绑定类型

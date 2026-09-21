@@ -1,289 +1,379 @@
 const $ = selector => document.querySelector(selector);
-const state = { ip: '', groups: [], whitelist: [], categories: [] };
-let tab = 'whitelist';
-let cursors = [null];
-let page = 0;
-let nextCursor = null;
-let logQuery = new URLSearchParams();
-let logRequest = 0;
+const formatNumber = value => Number(value).toLocaleString('zh-CN');
+const formatTime = value => new Date(value).toLocaleString('zh-CN', { hour12: false });
+const decisionLabels = { allowed: '放行', denied: '拒绝', admin: '管理请求', error: '异常' };
+const newView = () => ({ filters: {}, page: 1, snapshot: null, next: false });
+const views = { ips: newView(), logs: newView() };
+let state = { ip: '', groups: [], tags: [] };
+let activeTab = 'ips';
+let listRequest = 0;
+let detailId = 0;
+let editingIP = null;
+let editingGroup = null;
 
-function node(tag, text, className) {
-  const element = document.createElement(tag);
-  if (text !== undefined) element.textContent = text;
-  if (className) element.className = className;
-  return element;
+function element(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+
+function button(label, action, className = 'button') {
+  const node = element('button', label, className);
+  node.type = 'button';
+  node.addEventListener('click', () => run(node, action));
+  return node;
 }
 
 function message(text, error = false) {
-  const element = $('#message');
-  element.textContent = text;
-  element.className = error ? 'error' : '';
-  element.hidden = !text;
-  element.setAttribute('role', error ? 'alert' : 'status');
+  $('#message').textContent = text;
+  $('#message').hidden = !text;
+  $('#message').classList.toggle('error', error);
 }
 
-async function perform(work, button) {
-  if (button) button.disabled = true;
-  try { await work(); }
+async function run(control, action) {
+  control.disabled = true;
+  try { await action(); }
   catch (error) { message(error.message, true); }
-  finally { if (button) button.disabled = false; }
+  finally { control.disabled = false; }
 }
 
-async function api(path, method = 'GET', body) {
-  const response = await fetch(`/admin/api/${path}`, {
+async function api(path, method = 'GET', data) {
+  const response = await fetch('/admin/api/' + path, {
     method, credentials: 'same-origin',
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    ...(data === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }),
   });
-  if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('无法读取管理接口，请刷新页面确认登录状态。');
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error ?? '请求失败，请重试');
-  return data;
+  if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('登录状态已变化，请刷新页面后重试。');
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || '请求失败，请重试。');
+  return result;
 }
 
-function options(selector, items, allLabel, emptyLabel) {
-  const select = $(selector);
-  const current = select.value;
-  select.replaceChildren(new Option(allLabel, ''));
-  if (emptyLabel) select.add(new Option(emptyLabel, 'none'));
-  for (const item of items) select.add(new Option(item.name, String(item.id)));
-  select.value = [...select.options].some(option => option.value === current) ? current : '';
+function options(container, items, selected, onChange) {
+  container.replaceChildren(...items.map(([value, label]) => {
+    const node = button(label, async () => {
+      const pending = onChange(value);
+      container.querySelector('[aria-pressed="true"]')?.focus({ preventScroll: true });
+      await pending;
+    }, 'option');
+    node.setAttribute('aria-pressed', String(String(value) === String(selected)));
+    return node;
+  }));
 }
 
-async function refreshState() {
-  Object.assign(state, await api('state'));
-  $('#current-ip').textContent = state.ip || '未获取到 IP';
-  $('#use-current-ip').disabled = !state.ip;
-  $('#enabled-count').textContent = state.whitelist.filter(item => item.enabled).length;
-  $('#group-count').textContent = state.groups.length;
-  $('#category-count').textContent = state.categories.length;
-  options('#entry-group', state.groups, '未分组');
-  options('#whitelist-group', state.groups, '全部分组', '未分组');
-  options('#log-group', state.groups, '全部分组', '未分组');
-  options('#log-category', state.categories, '全部分类', '未分类');
-  renderWhitelist();
-  renderRules();
+function groupOptions(all = true) {
+  return [...(all ? [['', '全部']] : []), ['none', '未分组'], ...state.groups.map(group => [String(group.id), group.name])];
 }
 
-function showTab(name) {
-  tab = name;
-  for (const button of document.querySelectorAll('[data-tab]')) {
-    if (button.dataset.tab === name) button.setAttribute('aria-current', 'page');
-    else button.removeAttribute('aria-current');
+function renderFilters() {
+  if (activeTab === 'groups') return;
+  const view = views[activeTab];
+  const filter = (id, name, items) => options($(id), items, view.filters[name] ?? '', async value => {
+    view.filters[name] = value;
+    captureSearch();
+    resetPage(view);
+    renderFilters();
+    await loadOverview();
+  });
+  filter('#filter-enabled', 'enabled', [['', '全部'], ['1', '已放行'], ['0', '未放行']]);
+  filter('#filter-group', 'group_id', groupOptions());
+  filter('#filter-tag', 'tag', [['', '全部'], ...state.tags.map(tag => [tag, tag])]);
+  filter('#filter-decision', 'decision', [['', '全部'], ...Object.entries(decisionLabels)]);
+  filter('#filter-period', 'period', [['', '全部时间'], ['1', '最近 24 小时'], ['7', '最近 7 天'], ['30', '最近 30 天']]);
+  $('#search').value = view.filters.q ?? '';
+  $('#search-path').value = view.filters.path ?? '';
+}
+
+function captureSearch() {
+  const filters = views[activeTab].filters;
+  filters.q = $('#search').value.trim();
+  if (activeTab === 'logs') filters.path = $('#search-path').value.trim();
+}
+
+function resetPage(view) {
+  view.page = 1;
+  view.snapshot = null;
+  // Keep this boundary fixed for the whole pagination session.
+  view.from = view.filters.period ? new Date(Date.now() - Number(view.filters.period) * 86400000).toISOString() : null;
+}
+
+function parameters(view) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(view.filters)) {
+    if (key !== 'period' && value !== '') params.set(key, value);
   }
-  for (const name of ['whitelist', 'logs', 'categories']) $(`#panel-${name}`).hidden = name !== tab;
-  if (tab === 'logs') return loadLogs(0, true);
+  if (view.from) params.set('from', view.from);
+  if (view.snapshot !== null) params.set('snapshot', view.snapshot);
+  params.set('page', view.page);
+  return params;
 }
 
-const titles = { whitelist: '添加 IP', group: '添加 IP 分组', category: '添加路径分类' };
-function resetForm(name) {
-  const form = $(`#${name}-form`);
-  form.reset();
-  form.elements.id.value = '';
-  $(`#${name}-form-title`).textContent = titles[name];
-}
-
-function edit(name, item) {
-  const form = $(`#${name}-form`);
-  resetForm(name);
-  for (const [key, value] of Object.entries(item)) {
-    const field = form.elements.namedItem(key);
-    if (!field) continue;
-    if (field.type === 'checkbox') field.checked = Boolean(value);
-    else field.value = Array.isArray(value) ? value.join('\n') : value ?? '';
+async function loadState() {
+  state = await api('state');
+  $('#ip-count').textContent = formatNumber(state.ip_count);
+  $('#enabled-count').textContent = formatNumber(state.enabled_count);
+  $('#request-count').textContent = formatNumber(state.request_count);
+  $('#current-ip').textContent = state.ip || '未知 IP';
+  $('#group-count').textContent = `${state.groups.length} 个分组`;
+  // Deleted groups no longer participate in current-IP filtering.
+  for (const view of Object.values(views)) {
+    if (view.filters.group_id && view.filters.group_id !== 'none' && !state.groups.some(group => String(group.id) === view.filters.group_id)) {
+      delete view.filters.group_id;
+      resetPage(view);
+    }
   }
-  $(`#${name}-form-title`).textContent = `编辑${name === 'whitelist' ? ' IP' : name === 'group' ? ' IP 分组' : '路径分类'}`;
-  form.scrollIntoView({ block: 'nearest' });
-  form.elements.namedItem(name === 'whitelist' ? 'ip' : 'name').focus();
+  renderFilters();
+  renderGroups();
 }
 
-function action(label, work, danger = false) {
-  const button = node('button', label, `text-button${danger ? ' danger' : ''}`);
-  button.type = 'button';
-  button.addEventListener('click', () => perform(work, button));
-  return button;
+async function refresh() {
+  await loadState();
+  if (activeTab !== 'groups') { resetPage(views[activeTab]); await loadOverview(); }
 }
 
-async function remove(resource, item, prompt) {
-  if (!confirm(prompt)) return;
-  await api(`${resource}/${item.id}`, 'DELETE');
-  const formName = { groups: 'group', categories: 'category', whitelist: 'whitelist' }[resource];
-  if ($(`#${formName}-form`).elements.id.value === String(item.id)) resetForm(formName);
-  await refreshState();
-  message('已删除');
+async function showTab(tab) {
+  activeTab = tab;
+  listRequest++;
+  document.querySelectorAll('[data-tab]').forEach(node => {
+    if (node.dataset.tab === tab) node.setAttribute('aria-current', 'page');
+    else node.removeAttribute('aria-current');
+  });
+  $('#panel-overview').hidden = tab === 'groups';
+  $('#panel-groups').hidden = tab !== 'groups';
+  if (tab === 'groups') return;
+  const logs = tab === 'logs';
+  $('#overview-heading').textContent = logs ? '访问日志' : 'IP 管理';
+  $('#overview-label').textContent = logs ? 'REQUEST LOGS' : 'IP OVERVIEW';
+  $('#overview-description').textContent = logs ? '按 IP 汇总访问，展开卡片查看每次请求。' : '每个来访 IP 汇总为一张卡片，可直接放行或分组。';
+  $('#overview-hint').textContent = logs ? '路径自动标记为 Ubuntu、npm、初始化脚本、管理后台或其他路径。耗时统计到响应头返回。' : '尚无访问记录的已配置 IP 也会保留在此处。';
+  $('#ip-list').classList.toggle('log-view', logs);
+  document.querySelectorAll('[data-log-filter]').forEach(node => { node.hidden = !logs; });
+  renderFilters();
+  await loadOverview();
 }
 
-function emptyRow(columns, text) {
-  const row = node('tr');
-  const cell = node('td', text, 'empty');
-  cell.colSpan = columns;
-  row.append(cell);
+async function loadOverview() {
+  if (activeTab === 'groups') return;
+  const tab = activeTab;
+  const view = views[tab];
+  const request = ++listRequest;
+  $('#ip-list').setAttribute('aria-busy', 'true');
+  $('#ip-list').replaceChildren(element('p', '正在读取访问记录…', 'empty'));
+  $('#previous-page').disabled = true;
+  $('#next-page').disabled = true;
+  try {
+    const result = await api(`${tab}?${parameters(view)}`);
+    if (request !== listRequest) return;
+    view.snapshot = result.snapshot;
+    view.next = result.next;
+    $('#result-count').textContent = `${formatNumber(result.total)} 个 IP · ${formatNumber(result.requests)} 次访问`;
+    $('#page-info').textContent = `第 ${view.page} 页 · 每页 20 个 IP`;
+    const query = parameters(view);
+    $('#ip-list').replaceChildren(...(result.ips.length ? result.ips.map(row => ipCard(row, query)) : [
+      element('p', '没有符合条件的 IP。可重置筛选，或在有新访问后刷新。', 'empty'),
+    ]));
+    $('#previous-page').disabled = view.page === 1;
+    $('#next-page').disabled = !view.next;
+  } catch (error) {
+    if (request !== listRequest) return;
+    $('#ip-list').replaceChildren(element('p', '读取失败，请点击“刷新数据”重试。', 'empty'));
+    $('#result-count').textContent = '读取失败';
+    message(error.message, true);
+  } finally {
+    if (request === listRequest) $('#ip-list').setAttribute('aria-busy', 'false');
+  }
+}
+
+function ipCard(row, query) {
+  const card = element('article', undefined, 'surface-card ip-card');
+  const summary = element('div', undefined, 'ip-summary');
+  const heading = element('div', undefined, 'ip-heading');
+  const identity = element('div');
+  const title = element('h3', undefined, 'ip-address');
+  title.append(element('code', row.ip || '未知 IP'));
+  identity.append(title);
+  const profile = element('div', undefined, 'ip-profile');
+  profile.append(element('span', row.group_name || '未分组', 'tag'));
+  if (row.ip && row.ip === state.ip) profile.append(element('span', '当前 IP', 'tag path-tag'));
+  identity.append(profile);
+  heading.append(identity, element('span', row.enabled ? '已放行' : '未放行', 'status' + (row.enabled ? ' allowed' : '')));
+  summary.append(heading);
+  if (row.note) summary.append(element('p', row.note, 'ip-note'));
+  const metrics = element('dl', undefined, 'ip-metrics');
+  for (const [key, label] of [['request', '访问'], ['allowed', '放行'], ['denied', '拒绝'], ['admin', '管理'], ['error', '异常']]) {
+    const metric = element('div', undefined, 'metric-' + key);
+    metric.append(element('dt', label), element('dd', formatNumber(row[key + '_count'])));
+    metrics.append(metric);
+  }
+  summary.append(metrics);
+  if (row.tags.length) {
+    const tags = element('div', undefined, 'ip-tags');
+    tags.setAttribute('aria-label', '访问路径标签');
+    tags.append(...row.tags.map(tag => element('span', tag, 'tag path-tag')));
+    summary.append(tags);
+  }
+  card.append(summary);
+  const latest = element('p', row.last_seen ? `最近访问 · ${formatTime(row.last_seen)}` : '暂无访问记录', 'latest-request');
+  if (row.latest_path) latest.append(element('code', `${row.latest_method} ${row.latest_path}`, 'latest-path'));
+  card.append(latest);
+  const actions = element('div', undefined, 'actions card-actions');
+  if (row.ip) {
+    const toggle = button(row.enabled ? '取消放行' : '放行 IP', async () => {
+      await api('ips', 'PUT', { ip: row.ip, enabled: !row.enabled });
+      await refresh();
+      message(`${row.ip} ${row.enabled ? '已取消放行' : '已放行'}`);
+    }, 'button' + (row.enabled ? '' : ' primary'));
+    toggle.setAttribute('aria-label', `${row.enabled ? '取消放行' : '放行 IP'} ${row.ip}`);
+    actions.append(toggle, button('分组与备注', () => openEditor(row)));
+  }
+  const panel = element('div');
+  panel.id = `events-${++detailId}`;
+  panel.hidden = true;
+  let loaded = false;
+  let before = null;
+  const entries = element('ol', undefined, 'event-list');
+  entries.setAttribute('aria-label', `${row.ip || '未知 IP'} 的请求明细`);
+  const errorText = element('p', undefined, 'hint error-text');
+  errorText.setAttribute('role', 'status');
+  const more = button('加载更早记录', () => loadEvents());
+  more.hidden = true;
+  const controls = element('div', undefined, 'event-controls');
+  controls.append(more);
+  panel.append(entries, errorText, controls);
+  async function loadEvents() {
+    panel.setAttribute('aria-busy', 'true');
+    errorText.textContent = '正在读取请求明细…';
+    const params = new URLSearchParams(query);
+    params.set('view', 'events');
+    params.set('ip', row.ip);
+    if (before) params.set('before', before);
+    try {
+      const result = await api(`logs?${params}`);
+      entries.append(...result.logs.map(eventRow));
+      loaded = true;
+      before = result.next;
+      more.hidden = !before;
+      more.textContent = '加载更早记录';
+      errorText.textContent = entries.childElementCount ? '' : '暂无符合筛选条件的请求。';
+    } catch (error) {
+      errorText.textContent = error.message;
+      more.textContent = '重试读取';
+      more.hidden = false;
+    } finally { panel.setAttribute('aria-busy', 'false'); }
+  }
+  const expand = button('查看记录', async () => {
+    panel.hidden = !panel.hidden;
+    expand.setAttribute('aria-expanded', String(!panel.hidden));
+    expand.textContent = panel.hidden ? '查看记录' : '收起记录';
+    if (!panel.hidden && !loaded) await loadEvents();
+  }, 'button subtle');
+  expand.setAttribute('aria-expanded', 'false');
+  expand.setAttribute('aria-controls', panel.id);
+  if (row.request_count) actions.append(expand);
+  card.append(actions, panel);
+  return card;
+}
+
+function eventRow(log) {
+  const row = element('li', undefined, 'event');
+  const heading = element('div', undefined, 'event-heading');
+  const time = element('time', formatTime(log.created_at));
+  time.dateTime = new Date(log.created_at).toISOString();
+  heading.append(time, element('span', log.path_tag, 'tag path-tag'), element('span', decisionLabels[log.decision], 'status ' + log.decision), element('span', `HTTP ${log.status}`, 'tag'));
+  const meta = element('div', undefined, 'event-meta');
+  meta.append(element('span', `${log.duration_ms} ms`), element('span', `访问时分组：${log.group_name || '未分组'}`));
+  if (log.country) meta.append(element('span', log.country));
+  if (log.user_agent) meta.append(element('span', log.user_agent));
+  row.append(heading, element('code', `${log.method} ${log.path}`, 'event-path'), meta);
   return row;
 }
 
-function renderWhitelist() {
-  const search = $('#whitelist-search').value.trim().toLowerCase();
-  const group = $('#whitelist-group').value;
-  const status = $('#whitelist-status').value;
-  const items = state.whitelist.filter(item =>
-    (!search || `${item.ip} ${item.note}`.toLowerCase().includes(search)) &&
-    (!group || (group === 'none' ? item.group_id === null : String(item.group_id) === group)) &&
-    (!status || String(item.enabled) === status));
-  $('#whitelist-count').textContent = `${items.length} / ${state.whitelist.length} 个地址`;
-  const rows = items.map(item => {
-    const row = node('tr');
-    const ip = node('td');
-    ip.append(node('code', item.ip));
-    const group = node('td', item.group_name ?? '未分组');
-    if (item.note) group.append(node('span', item.note, 'muted'));
-    const status = node('td');
-    status.append(node('span', item.enabled ? '启用' : '停用', `badge ${item.enabled ? 'allowed' : ''}`));
-    const controls = node('td');
-    const actions = node('div', undefined, 'actions');
-    actions.append(
-      action('编辑', () => edit('whitelist', item)),
-      action(item.enabled ? '停用' : '启用', async () => {
-        await api(`whitelist/${item.id}`, 'PUT', { ip: item.ip, group_id: item.group_id, note: item.note, enabled: !item.enabled });
-        await refreshState();
-        message(item.enabled ? 'IP 已停用' : 'IP 已启用');
-      }),
-      action('删除', () => remove('whitelist', item, `删除 ${item.ip}？删除后该 IP 将无法访问代理。`), true),
-    );
-    controls.append(actions);
-    row.append(ip, group, status, controls);
-    return row;
-  });
-  $('#whitelist-rows').replaceChildren(...(rows.length ? rows : [emptyRow(4, state.whitelist.length ? '没有匹配的 IP' : '还没有白名单 IP，请在表单中添加。')]));
-}
-
-function renderRules() {
-  for (const [name, resource, items] of [['group', 'groups', state.groups], ['category', 'categories', state.categories]]) {
-    const rows = items.map(item => {
-      const row = node('li');
-      const info = node('div', undefined, 'rule-info');
-      info.append(node('strong', item.name));
-      if (name === 'group') info.append(node('small', `${item.member_count} 个 IP`));
-      else for (const prefix of item.prefixes) info.append(node('code', prefix));
-      const controls = node('div', undefined, 'actions');
-      controls.append(
-        action('编辑', () => edit(name, item)),
-        action('删除', () => remove(resource, item, name === 'group'
-          ? `删除分组“${item.name}”？其中的 IP 会移至“未分组”，启用状态保持不变。`
-          : `删除分类“${item.name}”及其路径规则？历史日志保留原分类。`), true),
-      );
-      row.append(info, controls);
-      return row;
-    });
-    $(`#${name}-list`).replaceChildren(...(rows.length ? rows : [node('li', '暂无分类，请先添加。', 'muted')]));
-  }
-}
-
-const decisions = { allowed: '放行', denied: '拒绝', admin: '管理请求', error: '异常' };
-function renderLogs(logs) {
-  const rows = logs.map(item => {
-    const row = node('tr');
-    const source = node('td', new Date(item.created_at).toLocaleString('zh-CN', { hour12: false }));
-    source.append(node('span', item.ip || '未知 IP', 'muted mono'));
-    if (item.country) source.append(node('span', item.country, 'muted'));
-    const request = node('td');
-    request.append(node('span', item.method, 'badge'), node('code', item.path, 'request-path'));
-    if (item.user_agent) {
-      const detail = node('details');
-      detail.append(node('summary', '客户端', 'muted'), node('span', item.user_agent, 'muted'));
-      request.append(detail);
-    }
-    const category = node('td', item.group_name ?? '未分组');
-    category.append(node('span', item.category_name ?? '未分类', 'muted'));
-    const status = node('td');
-    status.append(node('span', decisions[item.decision], `badge ${item.decision}`), node('span', String(item.status), 'muted mono'));
-    row.append(source, request, category, status, node('td', `${item.duration_ms} ms`, 'muted'));
-    return row;
-  });
-  $('#log-rows').replaceChildren(...(rows.length ? rows : [emptyRow(5, '当前条件下没有访问记录')]));
-}
-
-async function loadLogs(targetPage = 0, reset = false) {
-  const requestId = ++logRequest;
-  const params = new URLSearchParams(logQuery);
-  if (!reset && cursors[targetPage]) params.set('before', cursors[targetPage]);
-  $('#previous-page').disabled = true;
-  $('#next-page').disabled = true;
-  $('#log-page-info').textContent = '正在读取日志…';
-  try {
-    const result = await api(`logs?${params}`);
-    if (requestId !== logRequest) return;
-    if (reset) cursors = [null];
-    page = targetPage;
-    nextCursor = result.next;
-    renderLogs(result.logs);
-    $('#log-page-info').textContent = `第 ${page + 1} 页 · ${result.logs.length} 条记录`;
-  } catch (error) {
-    if (requestId !== logRequest) return;
-    $('#log-page-info').textContent = '加载失败，请重试';
-    throw error;
-  } finally {
-    if (requestId === logRequest) {
-      $('#previous-page').disabled = page === 0;
-      $('#next-page').disabled = nextCursor === null;
-    }
-  }
-}
-
-for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => perform(() => showTab(button.dataset.tab)));
-for (const button of document.querySelectorAll('[data-reset]')) button.addEventListener('click', () => resetForm(button.dataset.reset));
-for (const selector of ['#whitelist-search', '#whitelist-group', '#whitelist-status']) $(selector).addEventListener('input', renderWhitelist);
-
-for (const [name, resource] of [['whitelist', 'whitelist'], ['group', 'groups'], ['category', 'categories']]) {
-  const form = $(`#${name}-form`);
-  form.addEventListener('submit', event => {
-    event.preventDefault();
-    perform(async () => {
-      const data = Object.fromEntries(new FormData(form));
-      const id = data.id;
-      delete data.id;
-      if (name === 'whitelist') {
-        data.group_id = data.group_id ? Number(data.group_id) : null;
-        data.enabled = form.elements.enabled.checked;
-      }
-      if (name === 'category') data.prefixes = data.prefixes.split('\n').map(line => line.trim()).filter(Boolean);
-      await api(id ? `${resource}/${id}` : resource, id ? 'PUT' : 'POST', data);
-      resetForm(name);
-      await refreshState();
-      message('已保存');
-    }, form.querySelector('[type="submit"]'));
+function renderEditorGroups() {
+  options($('#editor-groups'), groupOptions(false), editingGroup ?? 'none', value => {
+    editingGroup = value === 'none' ? null : Number(value);
+    renderEditorGroups();
   });
 }
 
-$('#use-current-ip').addEventListener('click', () => {
-  showTab('whitelist');
-  resetForm('whitelist');
-  $('#whitelist-form').elements.ip.value = state.ip;
-  $('#whitelist-form').elements.ip.focus();
-});
-$('#refresh').addEventListener('click', event => perform(async () => {
-  await refreshState();
-  if (tab === 'logs') await loadLogs(0, true);
-  message('数据已刷新');
-}, event.currentTarget));
-$('#log-filters').addEventListener('submit', event => {
+function openEditor(row) {
+  editingIP = row.ip;
+  editingGroup = row.group_id;
+  $('#editor-ip').textContent = row.ip;
+  $('#ip-form').elements.note.value = row.note;
+  $('#editor-error').hidden = true;
+  renderEditorGroups();
+  $('#ip-editor').showModal();
+}
+
+function renderGroups() {
+  $('#group-list').replaceChildren(...(state.groups.length ? state.groups.map(group => {
+    const card = element('article', undefined, 'surface-card group-card');
+    const description = element('div');
+    description.append(element('h3', group.name), element('p', `${formatNumber(group.member_count)} 个 IP`, 'muted'));
+    const actions = element('div', undefined, 'actions');
+    actions.append(button('编辑', () => {
+      $('#group-form').elements.id.value = group.id;
+      $('#group-form').elements.name.value = group.name;
+      $('#group-form-title').textContent = '编辑分组';
+      $('#group-form').elements.name.focus();
+    }), button('删除', async () => {
+      if (!confirm(`删除“${group.name}”？其中的 IP 将移至未分组，访问权限保持不变。`)) return;
+      await api(`groups/${group.id}`, 'DELETE');
+      if ($('#group-form').elements.id.value === String(group.id)) resetGroupForm();
+      await loadState();
+      message('分组已删除');
+    }, 'button subtle danger'));
+    card.append(description, actions);
+    return card;
+  }) : [element('p', '还没有分组。创建一个，开始整理访问来源。', 'empty')]));
+}
+
+function resetGroupForm() {
+  $('#group-form').reset();
+  $('#group-form').elements.id.value = '';
+  $('#group-form-title').textContent = '新建分组';
+}
+
+$('#search-form').addEventListener('submit', event => {
   event.preventDefault();
-  perform(async () => {
-    const query = new URLSearchParams();
-    for (const [key, value] of new FormData(event.target)) {
-      if (value) query.set(key, ['from', 'to'].includes(key) ? new Date(value).toISOString() : value.trim());
-    }
-    logQuery = query;
-    await loadLogs(0, true);
-    message('');
-  }, event.submitter);
+  captureSearch(); resetPage(views[activeTab]);
+  loadOverview();
 });
-$('#log-filters').addEventListener('reset', () => {
-  logQuery = new URLSearchParams();
-  perform(() => loadLogs(0, true));
+$('#reset-filters').addEventListener('click', () => {
+  views[activeTab] = newView();
+  renderFilters(); loadOverview();
 });
-$('#previous-page').addEventListener('click', () => perform(() => loadLogs(page - 1)));
-$('#next-page').addEventListener('click', () => {
-  cursors[page + 1] = nextCursor;
-  perform(() => loadLogs(page + 1));
+$('#previous-page').addEventListener('click', () => { views[activeTab].page--; loadOverview(); });
+$('#next-page').addEventListener('click', () => { views[activeTab].page++; loadOverview(); });
+$('#refresh').addEventListener('click', () => run($('#refresh'), async () => { message(''); await refresh(); }));
+document.querySelectorAll('[data-tab]').forEach(node => node.addEventListener('click', () => showTab(node.dataset.tab)));
+$('#cancel-group').addEventListener('click', resetGroupForm);
+$('#group-form').addEventListener('submit', event => {
+  event.preventDefault();
+  run(event.submitter, async () => {
+    const form = event.currentTarget;
+    const id = form.elements.id.value;
+    await api('groups' + (id ? '/' + id : ''), id ? 'PUT' : 'POST', { name: form.elements.name.value });
+    resetGroupForm();
+    await loadState();
+    message('分组已保存');
+  });
 });
-perform(refreshState);
+$('#ip-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const submit = event.submitter;
+  submit.disabled = true;
+  $('#editor-error').hidden = true;
+  try {
+    await api('ips', 'PUT', { ip: editingIP, group_id: editingGroup, note: $('#ip-form').elements.note.value });
+    $('#ip-editor').close();
+    await refresh();
+    message('分组与备注已保存');
+  } catch (error) {
+    $('#editor-error').textContent = error.message;
+    $('#editor-error').hidden = false;
+    if (!$('#ip-editor').open) message(error.message, true);
+  } finally { submit.disabled = false; }
+});
+for (const id of ['#close-editor', '#cancel-editor']) $(id).addEventListener('click', () => $('#ip-editor').close());
+refresh().catch(error => message(error.message, true));
