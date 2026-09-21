@@ -2,19 +2,69 @@
 
 零运行时依赖的 Cloudflare Worker 白名单反向代理。
 
+入口通过 D1 校验客户端 IP；启用的白名单 IP 才能使用代理与根路径的初始化脚本。`/admin`、`/admin/` 以及 `/admin/*` 下的页面资源和管理接口免于 IP 校验，供 Cloudflare Access 独立保护。
+
 ```text
 https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 → https://archive.ubuntu.com/ubuntu/dists/noble/InRelease
 ```
 
-- 所有入口均不额外限制 HTTP method；代理请求的方法和请求体原样转发，上游使用 HTTPS。
+- 代理与初始化脚本入口不额外限制 HTTP method；代理请求的方法和请求体原样转发，上游使用 HTTPS。
 - 流式传输响应，保留状态码、缓存头和 Range / 条件请求，支持大文件及断点续传。
 - 转发 Cookie、Authorization 等请求头，Host 改为目标源域名及端口；保留上游 Set-Cookie。
 - 白名单内的 HTTP / HTTPS 重定向改写回代理地址，保留端口、用户名和密码；HTTP 目标在下一次代理请求中升级为 HTTPS。其他域名或协议的重定向返回 502。
-- 非白名单返回 403，上游连接失败返回 502；代理自身的错误响应体只返回对应状态码，不返回原因，不记录日志。
+- 不在 IP 白名单或目标域名白名单内的请求返回 403，上游连接失败返回 502；代理自身的错误响应体只返回对应状态码。D1 校验失败时返回 503。
+- 所有经过 Worker 的请求写入 D1 访问日志，包括拒绝请求和管理请求。日志通过 `waitUntil` 异步写入，不读取或缓冲下载响应体；写入失败输出 Worker 错误日志。
 - 使用原生 `HTMLRewriter` 流式改写 HTML 的 `href`、`src`：`/` 开头的根路径，以及指向白名单域名的 HTTP / HTTPS、`//域名/路径` 地址，改为对应代理地址。普通相对路径、查询参数、锚点和其他域名的地址保持原样。
 
-`wrangler.toml` 已声明目标域名和 Worker 入口；未执行部署或 DNS 操作。
+`wrangler.toml` 已声明目标域名、Worker 入口与 D1 绑定 `DB`（数据库名 `fast-access`）。首次上线须先创建数据库并执行迁移。
+
+## 管理页
+
+访问 `https://fast.thanejoss.com/admin`：
+
+- **IP 白名单**：添加、编辑、启停、删除 IPv4 / IPv6 地址，设置分组与备注，按 IP、备注、分组或状态筛选。可将当前 IP 填入表单后保存。
+- **IP 分组**：维护“家里、公司、朋友”等来源分组。删除分组会将成员移至“未分组”，保留 IP 及其启用状态。
+- **路径分类**：每个分类可设置多个路径前缀，逐行填写；按路径段匹配，较长的前缀优先。例如 `/registry.npmjs.org/pkg` 匹配其自身及子路径，不匹配 `/registry.npmjs.org/pkg-other`。`/` 是所有路径的默认分类。预置 Ubuntu、npm、其他路径、管理后台四类。
+- **访问日志**：按 IP、IP 分组、路径分类、访问结果、路径片段及时间范围组合筛选，每页 50 条。分类名称保存为访问时的快照，修改或删除分类不会改变历史日志。
+
+IP 使用 Cloudflare 的 `CF-Connecting-IP`，不接受 `X-Forwarded-For` 或 `X-Real-IP` 作为白名单依据。支持单个完整 IP，IPv6 自动规范化；不支持 CIDR 网段。若域名启用了 Pseudo IPv4 的 Overwrite Headers 模式，建议改为 Off / Add Header，以便按真实 IPv6 管理白名单。
+
+“放行”表示通过 IP 检查，HTTP 状态码另列，因此上游错误或目标域名拒绝仍可显示为“放行”。耗时统计到响应头返回，不包含下载完成时间。日志记录时间、IP、方法、路径、分类、状态、国家、User-Agent 和耗时，不保存请求体、Cookie、Authorization、查询参数或 URL 用户名密码。日志保留在 D1 中，不自动清理；Access 在 Worker 之前拦截的请求不会进入这些日志。
+
+管理页不内置登录，也不检查 IP 白名单。配置 Access 时请同时覆盖 `/admin` 和 `/admin/*`，包含 `/admin/api/*` 及页面资源；配置完成前，这些管理接口可被公开调用。保留 `workers_dev = false`、`preview_urls = false`，使管理流量统一经过配置 Access 的自定义域名。管理写操作需携带本站 `Origin`，POST / PUT 使用 JSON。
+
+## 本地开发与部署
+
+```bash
+npm install
+npm run dev
+```
+
+打开 `http://localhost:8787/admin`，将页面显示的当前 IP 加入白名单后访问 `/`。`npm run dev` 会先应用本地 D1 迁移；本地数据库与线上数据库独立。
+
+首次上线，在已登录 Cloudflare 的环境执行：
+
+```bash
+npx wrangler login
+npx wrangler d1 create fast-access --binding DB
+```
+
+将创建命令返回的 `database_id` 填入 `wrangler.toml` 现有的 `[[d1_databases]]`，然后执行：
+
+```bash
+npm run db:migrate:remote
+npm run deploy
+```
+
+若 `fast-access` 已存在，使用 `npx wrangler d1 list` 查到其 ID 后更新现有绑定，无需重复创建。先应用远端迁移，再发布 Worker；初始 IP 白名单为空，上线后从 `/admin` 添加允许访问的 IP。
+
+```bash
+npm run types       # 配置变更后生成本地绑定类型
+npm run check       # 语法检查与 Wrangler 部署预检，不会发布
+```
+
+实现分为：`index.js` 入口检查与日志、`access.js` IP 与日志查询、`admin.js` 管理接口、`admin/` 静态页面、`migrations/` D1 表结构、`proxy.js` 原有流式代理。
 
 ## 一键配置 Ubuntu 源
 

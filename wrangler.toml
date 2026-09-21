@@ -3,6 +3,7 @@ main = "index.js"
 no_bundle = true
 base_dir = "."
 compatibility_date = "2026-09-20"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 preview_urls = false
 routes = [{ pattern = "fast.thanejoss.com", custom_domain = true }]
@@ -12,13 +13,25 @@ binding = "CF_VERSION_METADATA"
 
 [[rules]]
 type = "ESModule"
-globs = ["hosts/*"]
+globs = ["index.js", "proxy.js", "access.js", "admin.js", "hosts/*"]
 fallthrough = false
 
 [[rules]]
 type = "Text"
-globs = ["setup.sh"]
+globs = ["setup.sh", "admin/*.html", "admin/*.css", "admin/app.js"]
 fallthrough = false
+
+# The Worker has no Wasm modules; do not upload Wasm files from development dependencies.
+[[rules]]
+type = "CompiledWasm"
+globs = []
+fallthrough = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fast-access"
+database_id = "594214c2-dbbb-47a3-83d3-45d2c74d5294"
+migrations_dir = "migrations"
 
 [observability]
 enabled = false

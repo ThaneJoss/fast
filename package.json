@@ -1,5 +1,17 @@
 {
   "name": "fast",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler d1 migrations apply DB --local && wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "types": "wrangler types --include-runtime=false",
+    "check": "node --check index.js && node --check proxy.js && node --check access.js && node --check admin.js && node --check admin/app.js && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260921.1",
+    "wrangler": "^4.135.0"
+  }
 }
