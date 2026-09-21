@@ -1,4 +1,5 @@
 #Setup
+# curl -fsSL https://fast.thanejoss.com/ | sudo bash
 
 ## archive.ubuntu.com
 grep -qE '^URIs:.*[[:space:]]https://fast[.]thanejoss[.]com/archive[.]ubuntu[.]com/ubuntu/?([[:space:]]|$)' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || {
@@ -10,6 +11,7 @@ Types: deb
 URIs: https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/
 Suites: ${VERSION_CODENAME} ${VERSION_CODENAME}-updates ${VERSION_CODENAME}-backports
 Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 EOF
 }
 
@@ -23,5 +25,6 @@ Types: deb
 URIs: https://fast.thanejoss.com/security.ubuntu.com/ubuntu/
 Suites: ${VERSION_CODENAME}-security
 Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 EOF
 }
