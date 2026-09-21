@@ -29,7 +29,6 @@ curl -fsSL https://fast.thanejoss.com/ | bash
 
 主页返回 `setup.sh`。脚本从 `/etc/os-release` 读取 Ubuntu 版本代号，
 按域名分段向 `/etc/apt/sources.list.d/ubuntu.sources` 追加 deb822 配置。
-使用 Ubuntu archive keyring 验证软件包签名。
 
 仅追加：保留原有源，重复执行会重复追加。不备份、不刷新索引，不含函数、条件判断或提示输出。
 
