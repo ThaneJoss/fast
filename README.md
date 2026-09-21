@@ -28,9 +28,9 @@ curl -fsSL https://fast.thanejoss.com/ | bash
 普通用户使用 `curl -fsSL https://fast.thanejoss.com/ | sudo bash`。
 
 主页返回 `setup.sh`。脚本从 `/etc/os-release` 读取 Ubuntu 版本代号，
-按域名分段写入 `/etc/apt/sources.list.d/ubuntu.sources` 的 deb822 配置。
+按域名检查 `/etc/apt/sources.list.d/ubuntu.sources` 的 `URIs:` 行，已有对应代理地址就跳过，仅追加缺少的源。
 
-第一段覆盖写入，第二段追加；整个文件重写为这两个代理源，重复执行结果相同。不备份、不刷新索引，不含函数、条件判断或提示输出。
+保留文件原有内容，重复执行不会重复追加；不覆盖、不备份、不刷新索引，不含函数或提示输出。
 
 ## 按 host 组织逻辑
 
