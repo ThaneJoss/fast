@@ -27,8 +27,8 @@ curl -fsSL https://fast.thanejoss.com/ | bash
 
 普通用户使用 `curl -fsSL https://fast.thanejoss.com/ | sudo bash`。
 
-主页返回 `setup.sh`。脚本从 `/etc/os-release` 读取 Ubuntu 版本代号，
-按域名检查 `/etc/apt/sources.list.d/ubuntu.sources` 的 `URIs:` 行，已有对应代理地址就跳过，仅追加缺少的源。
+主页返回 `setup.sh`。脚本按域名检查 `/etc/apt/sources.list.d/ubuntu.sources` 的 `URIs:` 行，已有对应代理地址就跳过，仅追加缺少的源。
+各域名使用普通命令块 `{ ...; }`，仅在需要追加时读取 `/etc/os-release` 获取版本代号；不使用子 shell。
 
 保留文件原有内容，重复执行不会重复追加；不覆盖、不备份、不刷新索引，不含函数或提示输出。
 
