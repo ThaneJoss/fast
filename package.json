@@ -1,8 +1,5 @@
 {
   "name": "fast",
   "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node --test"
-  }
+  "type": "module"
 }
