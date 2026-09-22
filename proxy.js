@@ -15,7 +15,11 @@ export default {
   async fetch(request, env) {
     const incoming = new URL(request.url);
     if (incoming.pathname === '/') {
-      return new Response(request.method === 'HEAD' ? null : setup.replaceAll('__FAST_VERSION__', env.CF_VERSION_METADATA.id), {
+      const registry = `${incoming.origin}/registry.npmjs.org/`;
+      const script = setup
+        .replaceAll('__FAST_VERSION__', env.CF_VERSION_METADATA.id)
+        .replaceAll('__FAST_NPM_REGISTRY__', () => `'${registry.replaceAll("'", "'\\''")}'`);
+      return new Response(request.method === 'HEAD' ? null : script, {
         headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
       });
     }

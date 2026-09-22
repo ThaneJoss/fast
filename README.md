@@ -2,7 +2,7 @@
 
 零运行时依赖的 Cloudflare Worker 白名单反向代理。
 
-入口通过 D1 校验客户端 IP；启用的白名单 IP 才能使用代理与根路径的初始化脚本。`/admin`、`/admin/` 以及 `/admin/*` 下的页面资源和管理接口免于 IP 校验，供 Cloudflare Access 独立保护。
+入口通过 D1 校验客户端 IP；启用的白名单 IP 才能使用代理与根路径的初始化脚本，一次配置 Ubuntu 和 npm 源。`/admin`、`/admin/` 以及 `/admin/*` 下的页面资源和管理接口免于 IP 校验，供 Cloudflare Access 独立保护。
 
 ```text
 https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
@@ -65,18 +65,20 @@ npm run deploy
 
 ```bash
 npm run types       # 配置变更后生成本地绑定类型
-npm run check       # 语法检查与 Wrangler 部署预检，不会发布
+npm run check       # JavaScript / Shell 语法检查与 Wrangler 部署预检，不会发布
 ```
 
-实现分为：`index.js` 入口检查与日志、`access.js` IP 与日志查询、`admin.js` 管理接口、`admin/` 静态页面、`migrations/` D1 表结构、`proxy.js` 原有流式代理。
+实现分为：`index.js` 入口检查与日志、`access.js` IP 与日志查询、`admin.js` 管理接口、`admin/` 静态页面、`migrations/` D1 表结构、`proxy.js` 流式代理与脚本入口、`setup.sh` Ubuntu 与 npm 配置脚本。
 
-## 一键配置 Ubuntu 源
+## 一键配置 Ubuntu 与 npm 源
 
 以 root 执行：
 
 ```bash
 curl -fsSL https://fast.thanejoss.com/ | sudo bash
 ```
+
+主页脚本一次完成两种源的配置，可重复执行。Ubuntu 沿用版本标记避免重复添加源；npm 合并为一条 `registry` 配置，内容已一致时不重写文件。
 
 ## 按 host 组织逻辑
 
@@ -88,11 +90,21 @@ curl -fsSL https://fast.thanejoss.com/ | sudo bash
 
 ## npm / Node
 
-部署后，将 npm 源设为代理地址：
+在 `/admin` 放行当前 IP 后，运行上面的主页脚本即可。npm registry 根据请求域名生成，例如 `https://fast.thanejoss.com/registry.npmjs.org/`。
+
+脚本直接更新用户默认的 `~/.npmrc`，无需预先安装 Node.js / npm，后续通过 nvm 安装也可使用。通过 `sudo bash` 执行时配置 `SUDO_USER` 对应的原用户；直接以 root 执行时配置 root。已有文件的权限、属主、符号链接及其他配置项保留，新文件归目标用户所有且权限为 `0600`。
+
+项目 `.npmrc`、自定义 `NPM_CONFIG_USERCONFIG`、registry 环境变量、命令行参数和单独配置的 `@scope:registry` 仍可能覆盖默认用户配置。脚本不会迁移官方源的认证令牌；私有包需要按代理 registry 地址单独配置 npm 认证。
+
+查看当前生效配置并验证代理连通性：
 
 ```bash
-npm config set registry https://fast.thanejoss.com/registry.npmjs.org/
+npm config get registry
+npm ping --registry=https://fast.thanejoss.com/registry.npmjs.org/
+npm view @types/node dist.tarball --registry=https://fast.thanejoss.com/registry.npmjs.org/
 ```
+
+最后一条命令返回的 tarball URL 应以代理地址开头。
 
 也可以仅对一次安装使用代理：
 
@@ -101,12 +113,12 @@ npm install lodash --registry=https://fast.thanejoss.com/registry.npmjs.org/
 ```
 
 - 支持普通包、`@scope/name` 包、版本查询和 tarball 下载。
-- 流式改写完整及精简 JSON 元数据中以 `http://registry.npmjs.org/` 或 `https://registry.npmjs.org/` 开头的 URL，使 `dist.tarball` 下载继续经过代理；其他域名保持原样。
-- 包文件保持流式透传，支持 Range 和条件请求；改写的 JSON 移除上游 Content-Length、Content-Encoding 和 ETag。
+- 流式改写完整及精简 JSON 元数据中以 `http://registry.npmjs.org/` 或 `https://registry.npmjs.org/` 开头的 URL，使 `dist.tarball` 下载继续经过代理；支持 JSON 的斜杠和 Unicode 转义，保留描述中的内嵌 URL 与其他域名。
+- 包文件保持流式透传，支持 Range 和条件请求；改写的 JSON 移除上游 Content-Length、Content-Encoding、ETag、Last-Modified 和内容摘要头，保留包的 integrity / shasum。
 - npm 请求的方法、请求体和认证头透传给上游，包括发布、删除包、登录和审计请求；操作权限由 npm 上游校验。JSON URL 改写按响应状态和类型处理，不区分请求方法。
 
-恢复官方源：
+将当前用户配置恢复为官方源（不是此前的自定义源）：
 
 ```bash
-npm config set registry https://registry.npmjs.org/
+npm config set registry https://registry.npmjs.org/ --global=false --location=user --workspaces=false
 ```
