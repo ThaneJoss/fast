@@ -80,6 +80,8 @@ curl -fsSL https://fast.thanejoss.com/ | sudo bash
 
 主页脚本一次完成两种源的配置，可重复执行。Ubuntu 沿用版本标记避免重复添加源；npm 合并为一条 `registry` 配置，内容已一致时不重写文件。
 
+执行时逐项输出 `[已修改]` 或 `[未修改]`，分别显示 Ubuntu 主源、Ubuntu 安全源和 npm registry 的处理结果；npm 提示还包含配置文件路径和 registry 地址。
+
 ## 按 host 组织逻辑
 
 - `hosts/archive.ubuntu.com`

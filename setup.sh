@@ -22,7 +22,9 @@ if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
     esac
   done < /etc/apt/sources.list.d/ubuntu.sources
 fi
-[ "$fast_current" = true ] || {
+if [ "$fast_current" = true ]; then
+  printf '%s\n' '[未修改] Ubuntu 主源 (archive.ubuntu.com)：已是当前版本'
+else
   if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
     sed -i -E '/^### fast[.]thanejoss[.]com\/archive[.]ubuntu[.]com Version /,/^### (fast[.]thanejoss[.]com|End Version )/{
       /^### fast[.]thanejoss[.]com/!d
@@ -64,7 +66,8 @@ Components: main restricted universe multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 ### End Version $fast_version
 EOF
-}
+  printf '%s\n' '[已修改] Ubuntu 主源 (archive.ubuntu.com)'
+fi
 
 ## security.ubuntu.com
 fast_current=false
@@ -83,7 +86,9 @@ if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
     esac
   done < /etc/apt/sources.list.d/ubuntu.sources
 fi
-[ "$fast_current" = true ] || {
+if [ "$fast_current" = true ]; then
+  printf '%s\n' '[未修改] Ubuntu 安全源 (security.ubuntu.com)：已是当前版本'
+else
   if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
     sed -i -E '/^### fast[.]thanejoss[.]com\/security[.]ubuntu[.]com Version /,/^### (fast[.]thanejoss[.]com|End Version )/{
       /^### fast[.]thanejoss[.]com/!d
@@ -125,7 +130,8 @@ Components: main restricted universe multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 ### End Version $fast_version
 EOF
-}
+  printf '%s\n' '[已修改] Ubuntu 安全源 (security.ubuntu.com)'
+fi
 
 ## registry.npmjs.org
 # sudo configures the invoking user's npm, including npm installed later via nvm.
@@ -161,6 +167,9 @@ if ! cmp -s -- "$fast_npm_tmp" "$fast_npm_config"; then
     chown "$fast_npm_user:$(id -gn "$fast_npm_user")" "$fast_npm_tmp"
   fi
   mv -f -- "$fast_npm_tmp" "$fast_npm_config"
+  printf '[已修改] npm registry (%s)：%s\n' "$fast_npm_config" "$fast_registry"
+else
+  printf '[未修改] npm registry (%s)：已是 %s\n' "$fast_npm_config" "$fast_registry"
 fi
 rm -f -- "$fast_npm_tmp"
 trap - EXIT
