@@ -18,7 +18,7 @@ fallthrough = false
 
 [[rules]]
 type = "Text"
-globs = ["setup.sh", "npm.sh", "admin/*.html", "admin/*.css", "admin/app.js"]
+globs = ["setup.sh", "admin/*.html", "admin/*.css", "admin/app.js"]
 fallthrough = false
 
 # The Worker has no Wasm modules; do not upload Wasm files from development dependencies.

@@ -1,5 +1,4 @@
 import setup from './setup.sh';
-import npmSetup from './npm.sh';
 import archive from './hosts/archive.ubuntu.com';
 import security from './hosts/security.ubuntu.com';
 import npm from './hosts/registry.npmjs.org';
@@ -16,13 +15,8 @@ export default {
   async fetch(request, env) {
     const incoming = new URL(request.url);
     if (incoming.pathname === '/') {
-      return new Response(request.method === 'HEAD' ? null : setup.replaceAll('__FAST_VERSION__', env.CF_VERSION_METADATA.id), {
-        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
-      });
-    }
-    if (incoming.pathname === '/npm.sh') {
       const registry = `${incoming.origin}/registry.npmjs.org/`;
-      const script = npmSetup
+      const script = setup
         .replaceAll('__FAST_VERSION__', env.CF_VERSION_METADATA.id)
         .replaceAll('__FAST_NPM_REGISTRY__', () => `'${registry.replaceAll("'", "'\\''")}'`);
       return new Response(request.method === 'HEAD' ? null : script, {

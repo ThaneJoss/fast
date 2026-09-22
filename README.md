@@ -2,7 +2,7 @@
 
 零运行时依赖的 Cloudflare Worker 白名单反向代理。
 
-入口通过 D1 校验客户端 IP；启用的白名单 IP 才能使用代理、根路径的 Ubuntu 初始化脚本和 `/npm.sh` 配置脚本。`/admin`、`/admin/` 以及 `/admin/*` 下的页面资源和管理接口免于 IP 校验，供 Cloudflare Access 独立保护。
+入口通过 D1 校验客户端 IP；启用的白名单 IP 才能使用代理与根路径的初始化脚本，一次配置 Ubuntu 和 npm 源。`/admin`、`/admin/` 以及 `/admin/*` 下的页面资源和管理接口免于 IP 校验，供 Cloudflare Access 独立保护。
 
 ```text
 https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
@@ -61,23 +61,24 @@ npm run deploy
 
 若 `fast-access` 已存在，使用 `npx wrangler d1 list` 查到其 ID 后更新现有绑定，无需重复创建。先应用远端迁移，再发布 Worker；初始 IP 白名单为空，上线后从 `/admin` 的访问记录中放行 IP。
 
-从旧版升级时也需要先运行 `npm run db:migrate:remote`：`0002_log_path_tags.sql` 为新旧日志增加自动路径标签与索引；`0003_npm_setup_path_tag.sql` 将 `/npm.sh` 同样标记为“初始化脚本”。迁移保留已有访问记录，兼容旧 Worker 继续写入。旧路径分类数据保留在数据库中，但不再用于管理或日志分类。
+从旧版升级时也需要先运行 `npm run db:migrate:remote`：`0002_log_path_tags.sql` 为新旧日志增加自动路径标签与索引，兼容旧 Worker 继续写入。旧路径分类数据保留在数据库中，但不再用于管理或日志分类。
 
 ```bash
 npm run types       # 配置变更后生成本地绑定类型
-npm test            # npm 代理、配置脚本与入口路由的回归测试
-npm run check       # 语法检查、回归测试与 Wrangler 部署预检，不会发布
+npm run check       # JavaScript / Shell 语法检查与 Wrangler 部署预检，不会发布
 ```
 
-实现分为：`index.js` 入口检查与日志、`access.js` IP 与日志查询、`admin.js` 管理接口、`admin/` 静态页面、`migrations/` D1 表结构、`proxy.js` 流式代理与脚本入口、`npm.sh` npm 配置脚本。
+实现分为：`index.js` 入口检查与日志、`access.js` IP 与日志查询、`admin.js` 管理接口、`admin/` 静态页面、`migrations/` D1 表结构、`proxy.js` 流式代理与脚本入口、`setup.sh` Ubuntu 与 npm 配置脚本。
 
-## 一键配置 Ubuntu 源
+## 一键配置 Ubuntu 与 npm 源
 
 以 root 执行：
 
 ```bash
 curl -fsSL https://fast.thanejoss.com/ | sudo bash
 ```
+
+主页脚本一次完成两种源的配置，可重复执行。Ubuntu 沿用版本标记避免重复添加源；npm 合并为一条 `registry` 配置，内容已一致时不重写文件。
 
 ## 按 host 组织逻辑
 
@@ -89,15 +90,11 @@ curl -fsSL https://fast.thanejoss.com/ | sudo bash
 
 ## npm / Node
 
-先安装 Node.js 与 npm，并在 `/admin` 放行当前 IP。以平时使用 npm 的用户执行，无需 `sudo`：
+在 `/admin` 放行当前 IP 后，运行上面的主页脚本即可。npm registry 根据请求域名生成，例如 `https://fast.thanejoss.com/registry.npmjs.org/`。
 
-```bash
-curl -fsSL https://fast.thanejoss.com/npm.sh | sh
-```
+脚本直接更新用户默认的 `~/.npmrc`，无需预先安装 Node.js / npm，后续通过 nvm 安装也可使用。通过 `sudo bash` 执行时配置 `SUDO_USER` 对应的原用户；直接以 root 执行时配置 root。已有文件的权限、属主、符号链接及其他配置项保留，新文件归目标用户所有且权限为 `0600`。
 
-脚本将当前用户的 npm `registry` 设为 `https://fast.thanejoss.com/registry.npmjs.org/`，可重复执行。脚本根据请求域名生成 registry 地址，部署到其他域名时只需替换下载地址；`/` 仍提供原有 Ubuntu 配置脚本。`/npm.sh` 同样受 IP 白名单保护，响应不缓存。
-
-配置写入 npm 的用户配置文件（默认 `~/.npmrc`，遵循 `NPM_CONFIG_USERCONFIG`），不修改项目或全局配置。项目 `.npmrc`、环境变量、命令行参数和单独配置的 `@scope:registry` 仍可能覆盖此设置。脚本不会迁移官方源的认证令牌；私有包需要按代理 registry 地址单独配置 npm 认证。
+项目 `.npmrc`、自定义 `NPM_CONFIG_USERCONFIG`、registry 环境变量、命令行参数和单独配置的 `@scope:registry` 仍可能覆盖默认用户配置。脚本不会迁移官方源的认证令牌；私有包需要按代理 registry 地址单独配置 npm 认证。
 
 查看当前生效配置并验证代理连通性：
 
@@ -123,11 +120,5 @@ npm install lodash --registry=https://fast.thanejoss.com/registry.npmjs.org/
 将当前用户配置恢复为官方源（不是此前的自定义源）：
 
 ```bash
-curl -fsSL https://fast.thanejoss.com/npm.sh | sh -s -- --reset
-```
-
-查看脚本参数：
-
-```bash
-curl -fsSL https://fast.thanejoss.com/npm.sh | sh -s -- --help
+npm config set registry https://registry.npmjs.org/ --global=false --location=user --workspaces=false
 ```

@@ -126,3 +126,41 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 ### End Version $fast_version
 EOF
 }
+
+## registry.npmjs.org
+# sudo configures the invoking user's npm, including npm installed later via nvm.
+fast_registry=__FAST_NPM_REGISTRY__
+fast_npm_user=$(id -un)
+if [ "$(id -u)" = 0 ] && [ -n "${SUDO_USER:-}" ]; then
+  fast_npm_user=$SUDO_USER
+fi
+fast_npm_home=$(getent passwd "$fast_npm_user" | cut -d: -f6)
+if [ -z "$fast_npm_home" ]; then
+  printf 'Cannot find home directory for %s\n' "$fast_npm_user" >&2
+  exit 1
+fi
+# Resolve links before replacing the file so a symlinked .npmrc stays a symlink.
+fast_npm_config=$(readlink -m -- "$fast_npm_home/.npmrc")
+fast_npm_input=/dev/null
+[ ! -e "$fast_npm_config" ] || fast_npm_input=$fast_npm_config
+fast_npm_tmp=$(mktemp "${fast_npm_config}.fast.XXXXXX")
+trap 'rm -f -- "$fast_npm_tmp"' EXIT
+awk -v registry="$fast_registry" '
+  /^[[:blank:]]*registry[[:blank:]]*=/ {
+    if (!written++) print "registry=" registry
+    next
+  }
+  { print }
+  END { if (!written) print "registry=" registry }
+' "$fast_npm_input" > "$fast_npm_tmp"
+if ! cmp -s -- "$fast_npm_tmp" "$fast_npm_config"; then
+  if [ -e "$fast_npm_config" ]; then
+    chown --reference="$fast_npm_config" "$fast_npm_tmp"
+    chmod --reference="$fast_npm_config" "$fast_npm_tmp"
+  else
+    chown "$fast_npm_user:$(id -gn "$fast_npm_user")" "$fast_npm_tmp"
+  fi
+  mv -f -- "$fast_npm_tmp" "$fast_npm_config"
+fi
+rm -f -- "$fast_npm_tmp"
+trap - EXIT
