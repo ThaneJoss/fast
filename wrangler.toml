@@ -11,14 +11,18 @@ routes = [{ pattern = "fast.thanejoss.com", custom_domain = true }]
 [version_metadata]
 binding = "CF_VERSION_METADATA"
 
+[build]
+command = "npm run build"
+watch_dir = ["README.md", "home/template.html", "scripts/render-home.js"]
+
 [[rules]]
 type = "ESModule"
-globs = ["index.js", "proxy.js", "access.js", "admin.js", "hosts/*"]
+globs = ["index.js", "proxy.js", "home.js", "access.js", "admin.js", "hosts/*"]
 fallthrough = false
 
 [[rules]]
 type = "Text"
-globs = ["setup.sh", "admin/*.html", "admin/*.css", "admin/app.js"]
+globs = ["setup.sh", "home/index.html", "admin/*.html", "admin/*.css", "admin/app.js"]
 fallthrough = false
 
 # The Worker has no Wasm modules; do not upload Wasm files from development dependencies.

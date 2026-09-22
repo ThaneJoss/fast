@@ -1,4 +1,4 @@
-import setup from './setup.sh';
+import home from './home.js';
 import archive from './hosts/archive.ubuntu.com';
 import security from './hosts/security.ubuntu.com';
 import npm from './hosts/registry.npmjs.org';
@@ -14,15 +14,7 @@ const error = status => new Response(null, { status });
 export default {
   async fetch(request, env) {
     const incoming = new URL(request.url);
-    if (incoming.pathname === '/') {
-      const registry = `${incoming.origin}/registry.npmjs.org/`;
-      const script = setup
-        .replaceAll('__FAST_VERSION__', env.CF_VERSION_METADATA.id)
-        .replaceAll('__FAST_NPM_REGISTRY__', () => `'${registry.replaceAll("'", "'\\''")}'`);
-      return new Response(request.method === 'HEAD' ? null : script, {
-        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
-      });
-    }
+    if (incoming.pathname === '/') return home(request, env);
     const [, authority, path = '/'] = incoming.pathname.match(/^\/([^/]+)(\/.*)?$/) ?? [];
     const target = URL.parse(`https://${authority}`);
     if (!target || !HOSTS.has(target.hostname)) return error(403);

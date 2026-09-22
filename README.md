@@ -2,7 +2,7 @@
 
 零运行时依赖的 Cloudflare Worker 白名单反向代理。
 
-入口通过 D1 校验客户端 IP；启用的白名单 IP 才能使用代理与根路径的初始化脚本，一次配置 Ubuntu 和 npm 源。`/admin`、`/admin/` 以及 `/admin/*` 下的页面资源和管理接口免于 IP 校验，供 Cloudflare Access 独立保护。
+入口通过 D1 校验客户端 IP；启用的白名单 IP 才能使用代理、浏览器主页和根路径的初始化脚本，一次配置 Ubuntu 和 npm 源。`/admin`、`/admin/` 以及 `/admin/*` 下的页面资源和管理接口免于 IP 校验，供 Cloudflare Access 独立保护。
 
 ```text
 https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
@@ -18,6 +18,14 @@ https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 - 使用原生 `HTMLRewriter` 流式改写 HTML 的 `href`、`src`：`/` 开头的根路径，以及指向白名单域名的 HTTP / HTTPS、`//域名/路径` 地址，改为对应代理地址。普通相对路径、查询参数、锚点和其他域名的地址保持原样。
 
 `wrangler.toml` 已声明目标域名、Worker 入口与 D1 绑定 `DB`（数据库名 `fast-access`）。首次上线须先创建数据库并执行迁移。
+
+## 浏览器主页
+
+浏览器打开 `/` 时显示由本 README 渲染的 HTML 文档，包含目录、标题、列表、链接及代码块，并适配手机屏幕。`curl` 默认仍取得初始化脚本，原有一键配置命令不变。
+
+主页根据 `Accept` 协商响应类型：明确接受且优先选择 `text/html` 时返回页面；未指定或仅有 `*/*` 时返回脚本。也可通过 `/?format=html` 查看文档、`/?format=script` 查看原始脚本。两种响应均支持 HEAD、不缓存，并受相同的 IP 白名单保护。
+
+Markdown 在构建时转为 HTML，运行时不加载 Markdown 库或外部 CDN。修改 README 后，`wrangler dev`、部署预检和发布会自动重新生成页面；也可单独运行 `npm run build`。原始 HTML 按文本显示，链接仅允许 HTTP / HTTPS / mailto。
 
 ## 管理页
 
@@ -65,10 +73,11 @@ npm run deploy
 
 ```bash
 npm run types       # 配置变更后生成本地绑定类型
+npm run build       # 将 README.md 渲染为主页 HTML
 npm run check       # JavaScript / Shell 语法检查与 Wrangler 部署预检，不会发布
 ```
 
-实现分为：`index.js` 入口检查与日志、`access.js` IP 与日志查询、`admin.js` 管理接口、`admin/` 静态页面、`migrations/` D1 表结构、`proxy.js` 流式代理与脚本入口、`setup.sh` Ubuntu 与 npm 配置脚本。
+实现分为：`index.js` 入口检查与日志、`access.js` IP 与日志查询、`admin.js` 管理接口、`admin/` 静态页面、`migrations/` D1 表结构、`proxy.js` 流式代理、`home.js` 主页内容协商、`home/template.html` 文档样式、`scripts/render-home.js` Markdown 构建、`setup.sh` Ubuntu 与 npm 配置脚本。
 
 ## 一键配置 Ubuntu 与 npm 源
 
