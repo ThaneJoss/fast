@@ -65,6 +65,7 @@ npm run deploy
 
 ```bash
 npm run types       # 配置变更后生成本地绑定类型
+npm test            # 在临时目录中验证配置脚本，不修改本机源配置
 npm run check       # JavaScript / Shell 语法检查与 Wrangler 部署预检，不会发布
 ```
 
@@ -78,9 +79,11 @@ npm run check       # JavaScript / Shell 语法检查与 Wrangler 部署预检�
 curl -fsSL https://fast.thanejoss.com/ | sudo bash
 ```
 
-主页脚本一次完成两种源的配置，可重复执行。Ubuntu 沿用版本标记避免重复添加源；npm 合并为一条 `registry` 配置，内容已一致时不重写文件。
+主页脚本一次完成两种源的配置，可重复执行。Ubuntu 对比版本标记及完整的源配置，只有与当前系统发行版和预期配置一致时才跳过；保留版本注释但修改了源地址、发行版或启用状态的配置会重新生成。npm 合并为一条 `registry` 配置，内容已一致时不重写文件。
 
 执行时逐项输出 `[已修改]` 或 `[未修改]`，分别显示 Ubuntu 主源、Ubuntu 安全源和 npm registry 的处理结果；npm 提示还包含配置文件路径和 registry 地址。
+
+`[未修改]` 是正常状态，表示配置已一致，无需重复修改，并非报错。全部步骤成功后显示 `[完成]`，然后返回命令行；脚本只配置源，不执行 `apt update`、安装软件或检查代理连通性。
 
 ## 按 host 组织逻辑
 
