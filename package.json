@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test",
     "build": "node scripts/render-home.js",
     "dev": "wrangler d1 migrations apply DB --local && wrangler dev",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
