@@ -7,7 +7,8 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "types": "wrangler types --include-runtime=false",
-    "check": "node --check index.js && node --check proxy.js && node --check access.js && node --check admin.js && node --check admin/app.js && wrangler deploy --dry-run",
+    "test": "node --import ./tests/register.js --test tests/*.test.js",
+    "check": "node --check index.js && node --check proxy.js && node --check access.js && node --check admin.js && node --check admin/app.js && sh -n npm.sh && npm test && wrangler deploy --dry-run",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

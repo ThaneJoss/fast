@@ -1,4 +1,4 @@
-const REGISTRY_URLS = ['"https://registry.npmjs.org/', '"http://registry.npmjs.org/'];
+const REGISTRY_URLS = ['https://registry.npmjs.org/', 'http://registry.npmjs.org/'];
 
 export default async function ({ request, target, proxy }) {
   const response = await proxy(request, target);
@@ -8,37 +8,76 @@ export default async function ({ request, target, proxy }) {
   }
 
   // The transformed representation no longer has the upstream length or validator.
-  response.headers.delete('content-length');
-  response.headers.delete('content-encoding');
-  response.headers.delete('etag');
+  for (const header of ['content-length', 'content-encoding', 'etag', 'last-modified',
+    'content-md5', 'digest', 'content-digest', 'repr-digest']) {
+    response.headers.delete(header);
+  }
   if (!response.body) return response;
 
-  const replacement = `"${new URL(request.url).origin}/registry.npmjs.org/`;
-  const rewrite = text => {
-    for (const prefix of REGISTRY_URLS) text = text.replaceAll(prefix, () => replacement);
-    return text;
-  };
+  const replacement = JSON.stringify(`${new URL(request.url).origin}/registry.npmjs.org/`).slice(1, -1);
+  let inString = false;
+  let escaped = false;
+  let prefix = null;
   let pending = '';
+  let escape = '';
   const body = response.body
     .pipeThrough(new TextDecoderStream())
     .pipeThrough(new TransformStream({
       transform(chunk, controller) {
-        pending += chunk;
-        // Keep only a possible URL prefix split across chunks, never a whole packument.
-        let end = pending.length;
-        for (const prefix of REGISTRY_URLS) {
-          for (let length = Math.min(prefix.length - 1, pending.length); length > 0; length--) {
-            if (pending.endsWith(prefix.slice(0, length))) {
-              end = Math.min(end, pending.length - length);
-              break;
+        let output = '';
+        for (const character of chunk) {
+          if (!inString) {
+            output += character;
+            if (character === '"') {
+              inString = true;
+              prefix = '';
             }
+            continue;
           }
+
+          if (prefix === null) {
+            output += character;
+            if (escaped) escaped = false;
+            else if (character === '\\') escaped = true;
+            else if (character === '"') inString = false;
+            continue;
+          }
+
+          // Buffer only a possible URL prefix, including JSON escapes. Track
+          // string boundaries so quoted URLs in descriptions stay untouched.
+          pending += character;
+          let decoded = character;
+          if (escape) {
+            escape += character;
+            if (escape[1] === 'u' && escape.length < 6) continue;
+            decoded = JSON.parse(`"${escape}"`);
+            escape = '';
+          } else if (character === '\\') {
+            escape = character;
+            continue;
+          } else if (character === '"') {
+            output += pending;
+            pending = '';
+            inString = false;
+            prefix = null;
+            continue;
+          }
+
+          prefix += decoded;
+          if (REGISTRY_URLS.includes(prefix)) {
+            output += replacement;
+          } else if (REGISTRY_URLS.some(url => url.startsWith(prefix))) {
+            continue;
+          } else {
+            output += pending;
+          }
+          pending = '';
+          prefix = null;
         }
-        controller.enqueue(rewrite(pending.slice(0, end)));
-        pending = pending.slice(end);
+        controller.enqueue(output);
       },
       flush(controller) {
-        controller.enqueue(rewrite(pending));
+        controller.enqueue(pending);
       },
     }))
     .pipeThrough(new TextEncoderStream());

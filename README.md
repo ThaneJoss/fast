@@ -2,7 +2,7 @@
 
 零运行时依赖的 Cloudflare Worker 白名单反向代理。
 
-入口通过 D1 校验客户端 IP；启用的白名单 IP 才能使用代理与根路径的初始化脚本。`/admin`、`/admin/` 以及 `/admin/*` 下的页面资源和管理接口免于 IP 校验，供 Cloudflare Access 独立保护。
+入口通过 D1 校验客户端 IP；启用的白名单 IP 才能使用代理、根路径的 Ubuntu 初始化脚本和 `/npm.sh` 配置脚本。`/admin`、`/admin/` 以及 `/admin/*` 下的页面资源和管理接口免于 IP 校验，供 Cloudflare Access 独立保护。
 
 ```text
 https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
@@ -61,14 +61,15 @@ npm run deploy
 
 若 `fast-access` 已存在，使用 `npx wrangler d1 list` 查到其 ID 后更新现有绑定，无需重复创建。先应用远端迁移，再发布 Worker；初始 IP 白名单为空，上线后从 `/admin` 的访问记录中放行 IP。
 
-从旧版升级时也需要先运行 `npm run db:migrate:remote`：`0002_log_path_tags.sql` 为新旧日志增加自动路径标签与索引，兼容旧 Worker 继续写入。旧路径分类数据保留在数据库中，但不再用于管理或日志分类。
+从旧版升级时也需要先运行 `npm run db:migrate:remote`：`0002_log_path_tags.sql` 为新旧日志增加自动路径标签与索引；`0003_npm_setup_path_tag.sql` 将 `/npm.sh` 同样标记为“初始化脚本”。迁移保留已有访问记录，兼容旧 Worker 继续写入。旧路径分类数据保留在数据库中，但不再用于管理或日志分类。
 
 ```bash
 npm run types       # 配置变更后生成本地绑定类型
-npm run check       # 语法检查与 Wrangler 部署预检，不会发布
+npm test            # npm 代理、配置脚本与入口路由的回归测试
+npm run check       # 语法检查、回归测试与 Wrangler 部署预检，不会发布
 ```
 
-实现分为：`index.js` 入口检查与日志、`access.js` IP 与日志查询、`admin.js` 管理接口、`admin/` 静态页面、`migrations/` D1 表结构、`proxy.js` 原有流式代理。
+实现分为：`index.js` 入口检查与日志、`access.js` IP 与日志查询、`admin.js` 管理接口、`admin/` 静态页面、`migrations/` D1 表结构、`proxy.js` 流式代理与脚本入口、`npm.sh` npm 配置脚本。
 
 ## 一键配置 Ubuntu 源
 
@@ -88,11 +89,25 @@ curl -fsSL https://fast.thanejoss.com/ | sudo bash
 
 ## npm / Node
 
-部署后，将 npm 源设为代理地址：
+先安装 Node.js 与 npm，并在 `/admin` 放行当前 IP。以平时使用 npm 的用户执行，无需 `sudo`：
 
 ```bash
-npm config set registry https://fast.thanejoss.com/registry.npmjs.org/
+curl -fsSL https://fast.thanejoss.com/npm.sh | sh
 ```
+
+脚本将当前用户的 npm `registry` 设为 `https://fast.thanejoss.com/registry.npmjs.org/`，可重复执行。脚本根据请求域名生成 registry 地址，部署到其他域名时只需替换下载地址；`/` 仍提供原有 Ubuntu 配置脚本。`/npm.sh` 同样受 IP 白名单保护，响应不缓存。
+
+配置写入 npm 的用户配置文件（默认 `~/.npmrc`，遵循 `NPM_CONFIG_USERCONFIG`），不修改项目或全局配置。项目 `.npmrc`、环境变量、命令行参数和单独配置的 `@scope:registry` 仍可能覆盖此设置。脚本不会迁移官方源的认证令牌；私有包需要按代理 registry 地址单独配置 npm 认证。
+
+查看当前生效配置并验证代理连通性：
+
+```bash
+npm config get registry
+npm ping --registry=https://fast.thanejoss.com/registry.npmjs.org/
+npm view @types/node dist.tarball --registry=https://fast.thanejoss.com/registry.npmjs.org/
+```
+
+最后一条命令返回的 tarball URL 应以代理地址开头。
 
 也可以仅对一次安装使用代理：
 
@@ -101,12 +116,18 @@ npm install lodash --registry=https://fast.thanejoss.com/registry.npmjs.org/
 ```
 
 - 支持普通包、`@scope/name` 包、版本查询和 tarball 下载。
-- 流式改写完整及精简 JSON 元数据中以 `http://registry.npmjs.org/` 或 `https://registry.npmjs.org/` 开头的 URL，使 `dist.tarball` 下载继续经过代理；其他域名保持原样。
-- 包文件保持流式透传，支持 Range 和条件请求；改写的 JSON 移除上游 Content-Length、Content-Encoding 和 ETag。
+- 流式改写完整及精简 JSON 元数据中以 `http://registry.npmjs.org/` 或 `https://registry.npmjs.org/` 开头的 URL，使 `dist.tarball` 下载继续经过代理；支持 JSON 的斜杠和 Unicode 转义，保留描述中的内嵌 URL 与其他域名。
+- 包文件保持流式透传，支持 Range 和条件请求；改写的 JSON 移除上游 Content-Length、Content-Encoding、ETag、Last-Modified 和内容摘要头，保留包的 integrity / shasum。
 - npm 请求的方法、请求体和认证头透传给上游，包括发布、删除包、登录和审计请求；操作权限由 npm 上游校验。JSON URL 改写按响应状态和类型处理，不区分请求方法。
 
-恢复官方源：
+将当前用户配置恢复为官方源（不是此前的自定义源）：
 
 ```bash
-npm config set registry https://registry.npmjs.org/
+curl -fsSL https://fast.thanejoss.com/npm.sh | sh -s -- --reset
+```
+
+查看脚本参数：
+
+```bash
+curl -fsSL https://fast.thanejoss.com/npm.sh | sh -s -- --help
 ```
