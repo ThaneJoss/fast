@@ -4,15 +4,17 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "build": "node scripts/render-home.js",
     "dev": "wrangler d1 migrations apply DB --local && wrangler dev",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "types": "wrangler types --include-runtime=false",
-    "check": "node --check index.js && node --check proxy.js && node --check access.js && node --check admin.js && node --check admin/app.js && bash -n setup.sh && wrangler deploy --dry-run",
+    "check": "node --check index.js && node --check proxy.js && node --check home.js && node --check scripts/render-home.js && node --check access.js && node --check admin.js && node --check admin/app.js && bash -n setup.sh && wrangler deploy --dry-run",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260921.1",
+    "marked": "18.0.14",
     "wrangler": "^4.135.0"
   }
 }
