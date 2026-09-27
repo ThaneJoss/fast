@@ -4,32 +4,47 @@
 
 set -e
 fast_version='__FAST_VERSION__'
+. /etc/os-release
+
+fast_ubuntu_block() {
+  cat <<EOF
+### fast.thanejoss.com/$1 Version $fast_version
+Types: deb
+URIs: https://fast.thanejoss.com/$1/ubuntu/
+Suites: $2
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+### End Version $fast_version
+EOF
+}
+
+fast_ubuntu_is_current() {
+  [ -f /etc/apt/sources.list.d/ubuntu.sources ] || return 1
+  # Compare the whole deb822 stanza, not just its version comments. Fields
+  # outside the comments (for example Enabled: no) also affect the source.
+  awk -v expected="$1" '
+    BEGIN { RS = "" }
+    $0 == expected { found = 1 }
+    END { exit !found }
+  ' /etc/apt/sources.list.d/ubuntu.sources
+}
 
 ## archive.ubuntu.com
-fast_current=false
-fast_block=
-if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-  while IFS= read -r fast_line; do
-    case "$fast_line" in
-      '### fast.thanejoss.com'*' Version '*) fast_block=$fast_line ;;
-      '### End Version '*)
-        if [ "$fast_block" = "### fast.thanejoss.com/archive.ubuntu.com Version $fast_version" ] && [ "$fast_line" = "### End Version $fast_version" ]; then
-          fast_current=true
-          break
-        fi
-        fast_block=
-        ;;
-    esac
-  done < /etc/apt/sources.list.d/ubuntu.sources
-fi
-if [ "$fast_current" = true ]; then
-  printf '%s\n' '[未修改] Ubuntu 主源 (archive.ubuntu.com)：已是当前版本'
+fast_ubuntu_expected=$(fast_ubuntu_block archive.ubuntu.com "${VERSION_CODENAME} ${VERSION_CODENAME}-updates ${VERSION_CODENAME}-backports")
+if fast_ubuntu_is_current "$fast_ubuntu_expected"; then
+  printf '%s\n' '[未修改] Ubuntu 主源 (archive.ubuntu.com)：配置已与当前版本一致'
 else
   if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-    sed -i -E '/^### fast[.]thanejoss[.]com\/archive[.]ubuntu[.]com Version /,/^### (fast[.]thanejoss[.]com|End Version )/{
-      /^### fast[.]thanejoss[.]com/!d
-      /^### fast[.]thanejoss[.]com\/archive[.]ubuntu[.]com Version /d
-    }' /etc/apt/sources.list.d/ubuntu.sources
+    # Remove the complete managed stanza, including fields outside its comments.
+    sed -i -E '
+      /^[[:blank:]]*$/b
+      :stanza
+      $!{
+        N
+        /\n[[:blank:]]*$/!b stanza
+      }
+      /(^|\n)### fast[.]thanejoss[.]com\/archive[.]ubuntu[.]com Version /d
+    ' /etc/apt/sources.list.d/ubuntu.sources
   fi
   for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
     [ -f "$source_file" ] || continue
@@ -54,46 +69,25 @@ else
       /(^|\n)URIs:[[:blank:]]*(\n|$)/d
     ' "$source_file"
   done
-  . /etc/os-release
-  cat >> /etc/apt/sources.list.d/ubuntu.sources <<EOF
-
-
-### fast.thanejoss.com/archive.ubuntu.com Version $fast_version
-Types: deb
-URIs: https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/
-Suites: ${VERSION_CODENAME} ${VERSION_CODENAME}-updates ${VERSION_CODENAME}-backports
-Components: main restricted universe multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-### End Version $fast_version
-EOF
+  printf '\n\n%s\n' "$fast_ubuntu_expected" >> /etc/apt/sources.list.d/ubuntu.sources
   printf '%s\n' '[已修改] Ubuntu 主源 (archive.ubuntu.com)'
 fi
 
 ## security.ubuntu.com
-fast_current=false
-fast_block=
-if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-  while IFS= read -r fast_line; do
-    case "$fast_line" in
-      '### fast.thanejoss.com'*' Version '*) fast_block=$fast_line ;;
-      '### End Version '*)
-        if [ "$fast_block" = "### fast.thanejoss.com/security.ubuntu.com Version $fast_version" ] && [ "$fast_line" = "### End Version $fast_version" ]; then
-          fast_current=true
-          break
-        fi
-        fast_block=
-        ;;
-    esac
-  done < /etc/apt/sources.list.d/ubuntu.sources
-fi
-if [ "$fast_current" = true ]; then
-  printf '%s\n' '[未修改] Ubuntu 安全源 (security.ubuntu.com)：已是当前版本'
+fast_ubuntu_expected=$(fast_ubuntu_block security.ubuntu.com "${VERSION_CODENAME}-security")
+if fast_ubuntu_is_current "$fast_ubuntu_expected"; then
+  printf '%s\n' '[未修改] Ubuntu 安全源 (security.ubuntu.com)：配置已与当前版本一致'
 else
   if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-    sed -i -E '/^### fast[.]thanejoss[.]com\/security[.]ubuntu[.]com Version /,/^### (fast[.]thanejoss[.]com|End Version )/{
-      /^### fast[.]thanejoss[.]com/!d
-      /^### fast[.]thanejoss[.]com\/security[.]ubuntu[.]com Version /d
-    }' /etc/apt/sources.list.d/ubuntu.sources
+    sed -i -E '
+      /^[[:blank:]]*$/b
+      :stanza
+      $!{
+        N
+        /\n[[:blank:]]*$/!b stanza
+      }
+      /(^|\n)### fast[.]thanejoss[.]com\/security[.]ubuntu[.]com Version /d
+    ' /etc/apt/sources.list.d/ubuntu.sources
   fi
   for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
     [ -f "$source_file" ] || continue
@@ -118,18 +112,7 @@ else
       /(^|\n)URIs:[[:blank:]]*(\n|$)/d
     ' "$source_file"
   done
-  . /etc/os-release
-  cat >> /etc/apt/sources.list.d/ubuntu.sources <<EOF
-
-
-### fast.thanejoss.com/security.ubuntu.com Version $fast_version
-Types: deb
-URIs: https://fast.thanejoss.com/security.ubuntu.com/ubuntu/
-Suites: ${VERSION_CODENAME}-security
-Components: main restricted universe multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-### End Version $fast_version
-EOF
+  printf '\n\n%s\n' "$fast_ubuntu_expected" >> /etc/apt/sources.list.d/ubuntu.sources
   printf '%s\n' '[已修改] Ubuntu 安全源 (security.ubuntu.com)'
 fi
 
@@ -173,3 +156,5 @@ else
 fi
 rm -f -- "$fast_npm_tmp"
 trap - EXIT
+
+printf '%s\n' '[完成] Ubuntu 与 npm 源配置已检查；[未修改] 表示配置已一致，无需重复修改。'
