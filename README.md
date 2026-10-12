@@ -88,7 +88,9 @@ npm run check       # JavaScript / Shell 语法检查与 Wrangler 部署预检�
 curl -fsSL https://fast.thanejoss.com/ | sudo bash
 ```
 
-主页脚本一次完成两种源的配置，可重复执行。Ubuntu 对比版本标记及完整的源配置，只有与当前系统发行版和预期配置一致时才跳过；保留版本注释但修改了源地址、发行版或启用状态的配置会重新生成。npm 合并为一条 `registry` 配置，内容已一致时不重写文件。
+主页脚本一次完成两种源的配置，可重复执行。Ubuntu 按[官方格式约定](https://ubuntu.com/server/docs/how-to/software/package-management/)整份替换官方源文件：24.04 及以后使用 deb822 格式的 `/etc/apt/sources.list.d/ubuntu.sources`，更早版本使用传统格式的 `/etc/apt/sources.list`，同时移除另一个官方源文件，避免两份配置同时生效。这两个文件内原有的所有内容（包括自定义条目）都会被替换或移除；`sources.list.d` 下其他独立文件保持原样，第三方源应放在这些独立文件中。
+
+修改前将两个官方源文件中已有的文件完整备份到 `/etc/apt/fast-backups/ubuntu.XXXXXX/`（每次实际修改使用独立目录，终端显示具体路径），保留原文件名、权限及符号链接；APT 不读取此备份目录。需要恢复时，将备份中的 `sources.list` 放回 `/etc/apt/sources.list`、`ubuntu.sources` 放回 `/etc/apt/sources.list.d/ubuntu.sources`，并移除这两个位置中备份里原本不存在的文件。只有目标文件的完整内容与当前发行版和预期配置一致、另一个官方源文件也已不存在时才跳过，重复执行不会重写源文件或新增备份。npm 合并为一条 `registry` 配置，内容已一致时不重写文件。
 
 执行时逐项输出 `[已修改]` 或 `[未修改]`，分别显示 Ubuntu 主源、Ubuntu 安全源和 npm registry 的处理结果；npm 提示还包含配置文件路径和 registry 地址。
 

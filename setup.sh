@@ -18,103 +18,85 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 EOF
 }
 
-fast_ubuntu_is_current() {
-  [ -f /etc/apt/sources.list.d/ubuntu.sources ] || return 1
-  # Compare the whole deb822 stanza, not just its version comments. Fields
-  # outside the comments (for example Enabled: no) also affect the source.
-  awk -v expected="$1" '
-    BEGIN { RS = "" }
-    $0 == expected { found = 1 }
-    END { exit !found }
-  ' /etc/apt/sources.list.d/ubuntu.sources
-}
-
-## archive.ubuntu.com
-fast_ubuntu_expected=$(fast_ubuntu_block archive.ubuntu.com "${VERSION_CODENAME} ${VERSION_CODENAME}-updates ${VERSION_CODENAME}-backports")
-if fast_ubuntu_is_current "$fast_ubuntu_expected"; then
-  printf '%s\n' '[未修改] Ubuntu 主源 (archive.ubuntu.com)：配置已与当前版本一致'
-else
-  if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-    # Remove the complete managed stanza, including fields outside its comments.
-    sed -i -E '
-      /^[[:blank:]]*$/b
-      :stanza
-      $!{
-        N
-        /\n[[:blank:]]*$/!b stanza
-      }
-      /(^|\n)### fast[.]thanejoss[.]com\/archive[.]ubuntu[.]com Version /d
-    ' /etc/apt/sources.list.d/ubuntu.sources
+## Replace the two canonical Ubuntu files; independent third-party files stay intact.
+fast_ubuntu_configure() (
+  set -e
+  local target alternate source_file tmp='' backup='' rewrite=1 major minor suite
+  trap 'if [ -n "$tmp" ]; then rm -f -- "$tmp"; fi' EXIT
+  if [ "${ID:-}" != ubuntu ] || [[ ! "${VERSION_ID:-}" =~ ^[0-9]+[.][0-9]+$ ]] || [[ ! "${VERSION_CODENAME:-}" =~ ^[a-z][a-z0-9]*$ ]]; then
+    printf '%s\n' '[错误] Ubuntu：/etc/os-release 缺少有效的 Ubuntu 版本信息' >&2
+    exit 1
   fi
-  for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
-    [ -f "$source_file" ] || continue
-    sed -i -E '/^[[:blank:]]*deb(-src)?[[:blank:]]+(\[[^]]*\][[:blank:]]+)?https?:\/\/(fast[.]thanejoss[.]com\/)?archive[.]ubuntu[.]com\/ubuntu\/?([[:blank:]]|$)/d' "$source_file"
+  major=${VERSION_ID%%.*}
+  minor=${VERSION_ID#*.}
+  # Ubuntu 24.04 switched its default official source file to deb822.
+  if (( 10#$major > 24 || (10#$major == 24 && 10#$minor >= 4) )); then
+    target=/etc/apt/sources.list.d/ubuntu.sources
+    alternate=/etc/apt/sources.list
+  else
+    target=/etc/apt/sources.list
+    alternate=/etc/apt/sources.list.d/ubuntu.sources
+  fi
+  for source_file in "$target" "$alternate"; do
+    if [ -e "$source_file" ] && [ ! -f "$source_file" ]; then
+      printf '[错误] Ubuntu：源配置不是普通文件：%s\n' "$source_file" >&2
+      exit 1
+    fi
   done
-  for source_file in /etc/apt/sources.list.d/*.sources; do
-    [ -f "$source_file" ] || continue
-    sed -i -E '
-      /^[[:blank:]]*$/b
-      :stanza
-      $!{
-        N
-        /\n[[:blank:]]*$/!b stanza
-      }
-      /(^|\n)URIs:([^\n]|\n[[:blank:]])*https?:\/\/(fast[.]thanejoss[.]com\/)?archive[.]ubuntu[.]com\/ubuntu\/?([[:space:]]|$)/!b
-      :uris
-      s/(^|\n)(URIs:[^\n]*)\n[[:blank:]]+([^[:blank:]\n])/\1\2 \3/
-      t uris
-      :source
-      s#(^|\n)(URIs:|URIs:[^\n]*[[:blank:]])https?://(fast[.]thanejoss[.]com/)?archive[.]ubuntu[.]com/ubuntu/?([[:blank:]]|\n|$)#\1\2\4#
-      t source
-      /(^|\n)URIs:[[:blank:]]*(\n|$)/d
-    ' "$source_file"
+  mkdir -p -- "${target%/*}"
+  tmp=$(mktemp "${target}.fast.XXXXXX")
+  if [[ "$target" = *.sources ]]; then
+    {
+      fast_ubuntu_block archive.ubuntu.com "${VERSION_CODENAME} ${VERSION_CODENAME}-updates ${VERSION_CODENAME}-backports"
+      printf '\n'
+      fast_ubuntu_block security.ubuntu.com "${VERSION_CODENAME}-security"
+    } > "$tmp"
+  else
+    {
+      printf '### fast.thanejoss.com/archive.ubuntu.com Version %s\n' "$fast_version"
+      for suite in "$VERSION_CODENAME" "${VERSION_CODENAME}-updates" "${VERSION_CODENAME}-backports"; do
+        printf 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/ %s main restricted universe multiverse\n' "$suite"
+      done
+      printf '### End Version %s\n\n' "$fast_version"
+      printf '### fast.thanejoss.com/security.ubuntu.com Version %s\n' "$fast_version"
+      printf 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://fast.thanejoss.com/security.ubuntu.com/ubuntu/ %s-security main restricted universe multiverse\n' "$VERSION_CODENAME"
+      printf '### End Version %s\n' "$fast_version"
+    } > "$tmp"
+  fi
+  # Replace symlinks as files, so removing the alternate cannot break the target.
+  if [ ! -L "$target" ] && cmp -s -- "$tmp" "$target"; then
+    rewrite=0
+  fi
+  if [ "$rewrite" = 0 ] && [ ! -e "$alternate" ] && [ ! -L "$alternate" ]; then
+    printf '%s\n' '[未修改] Ubuntu 主源 (archive.ubuntu.com)：配置已与当前版本一致'
+    printf '%s\n' '[未修改] Ubuntu 安全源 (security.ubuntu.com)：配置已与当前版本一致'
+    exit 0
+  fi
+  # Finish every backup before changing either canonical path. APT does not
+  # read this directory, and cp -a also preserves an original symbolic link.
+  for source_file in "$target" "$alternate"; do
+    if [ -e "$source_file" ] || [ -L "$source_file" ]; then
+      if [ -z "$backup" ]; then
+        mkdir -p -- /etc/apt/fast-backups
+        backup=$(mktemp -d /etc/apt/fast-backups/ubuntu.XXXXXX)
+      fi
+      cp -a -- "$source_file" "$backup/${source_file##*/}"
+    fi
   done
-  printf '\n\n%s\n' "$fast_ubuntu_expected" >> /etc/apt/sources.list.d/ubuntu.sources
+  if [ -n "$backup" ]; then
+    printf '[备份] Ubuntu 源配置：%s\n' "$backup"
+  fi
+  if [ "$rewrite" = 1 ]; then
+    chmod 0644 -- "$tmp"
+    mv -fT -- "$tmp" "$target"
+    tmp=''
+  fi
+  rm -f -- "$alternate"
   printf '%s\n' '[已修改] Ubuntu 主源 (archive.ubuntu.com)'
-fi
-
-## security.ubuntu.com
-fast_ubuntu_expected=$(fast_ubuntu_block security.ubuntu.com "${VERSION_CODENAME}-security")
-if fast_ubuntu_is_current "$fast_ubuntu_expected"; then
-  printf '%s\n' '[未修改] Ubuntu 安全源 (security.ubuntu.com)：配置已与当前版本一致'
-else
-  if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-    sed -i -E '
-      /^[[:blank:]]*$/b
-      :stanza
-      $!{
-        N
-        /\n[[:blank:]]*$/!b stanza
-      }
-      /(^|\n)### fast[.]thanejoss[.]com\/security[.]ubuntu[.]com Version /d
-    ' /etc/apt/sources.list.d/ubuntu.sources
-  fi
-  for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
-    [ -f "$source_file" ] || continue
-    sed -i -E '/^[[:blank:]]*deb(-src)?[[:blank:]]+(\[[^]]*\][[:blank:]]+)?https?:\/\/(fast[.]thanejoss[.]com\/)?security[.]ubuntu[.]com\/ubuntu\/?([[:blank:]]|$)/d' "$source_file"
-  done
-  for source_file in /etc/apt/sources.list.d/*.sources; do
-    [ -f "$source_file" ] || continue
-    sed -i -E '
-      /^[[:blank:]]*$/b
-      :stanza
-      $!{
-        N
-        /\n[[:blank:]]*$/!b stanza
-      }
-      /(^|\n)URIs:([^\n]|\n[[:blank:]])*https?:\/\/(fast[.]thanejoss[.]com\/)?security[.]ubuntu[.]com\/ubuntu\/?([[:space:]]|$)/!b
-      :uris
-      s/(^|\n)(URIs:[^\n]*)\n[[:blank:]]+([^[:blank:]\n])/\1\2 \3/
-      t uris
-      :source
-      s#(^|\n)(URIs:|URIs:[^\n]*[[:blank:]])https?://(fast[.]thanejoss[.]com/)?security[.]ubuntu[.]com/ubuntu/?([[:blank:]]|\n|$)#\1\2\4#
-      t source
-      /(^|\n)URIs:[[:blank:]]*(\n|$)/d
-    ' "$source_file"
-  done
-  printf '\n\n%s\n' "$fast_ubuntu_expected" >> /etc/apt/sources.list.d/ubuntu.sources
   printf '%s\n' '[已修改] Ubuntu 安全源 (security.ubuntu.com)'
-fi
+)
+
+fast_ubuntu_configure
 
 ## registry.npmjs.org
 # sudo configures the invoking user's npm, including npm installed later via nvm.
