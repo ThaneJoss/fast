@@ -222,8 +222,7 @@ fast_ssh_authorize() {
     return
   fi
   ssh_user=${FAST_SSH_USER:-${SUDO_USER:-$(id -un)}}
-  [[ "$ssh_user" =~ ^[a-z_][a-z0-9_-]*\$?$ ]] || { printf '%s\n' '[错误] SSH：目标账号名称无效' >&2; return 1; }
-  entry=$(getent passwd "$ssh_user") || { printf '[错误] SSH：目标账号不存在：%s\n' "$ssh_user" >&2; return 1; }
+  entry=$(getent -- passwd "$ssh_user") || { printf '[错误] SSH：目标账号不存在：%s\n' "$ssh_user" >&2; return 1; }
   [[ "$entry" != *$'\n'* ]] || { printf '%s\n' '[错误] SSH：目标账号查询不唯一' >&2; return 1; }
   IFS=: read -r name password uid gid gecos ssh_home shell <<< "$entry"
   [ "$name" = "$ssh_user" ] && [[ "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ ]] && (( 10#$uid != 0 )) || { printf '%s\n' '[错误] SSH：目标必须是有效的非 root 账号，请指定 FAST_SSH_USER' >&2; return 1; }
