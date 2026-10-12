@@ -1,0 +1,9 @@
+function allows(target, method) {
+  return (method === 'GET' || method === 'HEAD')
+    && !target.search
+    && /^\/dist(?:\/[A-Za-z0-9._-]*)*$/.test(target.pathname);
+}
+
+export default function ({ request, target, proxy }) {
+  return proxy(request, target, allows);
+}
