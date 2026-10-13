@@ -46,8 +46,10 @@ IP 使用 Cloudflare 的 `CF-Connecting-IP`，不接受 `X-Forwarded-For` 或 `X
 
 ## 本地开发与部署
 
+开发与 CI 使用 `.node-version` 指定的 Node.js 24；使用锁文件安装依赖：
+
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -73,10 +75,17 @@ npm run deploy
 
 ```bash
 npm run types       # 配置变更后生成本地绑定类型
-npm test            # 在临时目录中验证配置脚本，不修改本机源配置
+npm run lint        # JavaScript（含 hosts）规范与 Shell 语法检查
+npm test            # Markdown 渲染与临时目录内的配置脚本回归测试
 npm run build       # 将 README.md 渲染为主页 HTML
 npm run check       # JavaScript / Shell 语法检查与 Wrangler 部署预检，不会发布
+npx playwright install chromium
+npm run test:e2e    # 本地 Worker / D1 与桌面、移动端浏览器验收
 ```
+
+`.github/workflows/ci.yml` 在每个 PR（包括 draft）以及 `main` 推送时执行 lint、单元测试、主页构建、Worker 打包预检、依赖安全审计和 Playwright / axe 验收。浏览器检查包括 IP 放行、分组删除、主页内容协商与 HEAD、错误恢复、键盘焦点、横向溢出和无障碍；报告与截图保存在 `fast-ci-evidence` artifact 中。项目为 JavaScript，`npm run types` 仅生成绑定声明，不是类型检查；CI 使用 ESLint 和运行时集成测试，不声称提供 TypeScript 检查。
+
+浏览器测试只启动 `127.0.0.1:8789` 的 `wrangler dev --local`，迁移和测试数据写入独立的 `.wrangler/test-state`，不会使用日常开发的本地数据库或线上 D1，也不会请求真实代理上游。配置脚本测试把 APT、用户目录与 SSH 写入重定向至临时目录，不执行主机初始化；SSH 专项测试在 root 环境明确跳过，CI 使用普通用户执行。自动质量检查不包含部署、远端迁移或 Cloudflare 凭据。
 
 实现分为：`index.js` 入口检查与日志、`access.js` IP 与日志查询、`admin.js` 管理接口、`admin/` 静态页面、`migrations/` D1 表结构、`proxy.js` 流式代理、`home.js` 主页内容协商、`home/template.html` 文档样式、`scripts/render-home.js` Markdown 构建、`setup.sh` Ubuntu 与 npm 配置脚本。
 

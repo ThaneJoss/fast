@@ -63,7 +63,7 @@ h1 span { color: var(--brand); }
 .filter-row { display: flex; align-items: flex-start; gap: 1rem; padding: 6px 0; }
 .filter-label { flex: 0 0 68px; color: var(--steel); font-size: .8rem; padding-top: 10px; }
 .options { display: flex; flex-wrap: wrap; gap: .4rem; min-width: 0; }
-.option { min-height: 40px; max-width: 100%; padding: .4rem .8rem; border: 1px solid transparent; border-radius: .5rem; background: transparent; color: var(--steel); font-size: .8rem; text-align: left; overflow-wrap: anywhere; }
+.option { min-height: 44px; max-width: 100%; padding: .4rem .8rem; border: 1px solid transparent; border-radius: .5rem; background: transparent; color: var(--steel); font-size: .8rem; text-align: left; overflow-wrap: anywhere; }
 .option[aria-pressed='true'] { color: #1d4ed8; background: #eff4ff; border-color: #bfd2fc; font-weight: 600; }
 .search-form { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 12px; padding-top: 18px; border-top: 1px solid var(--border); }
 .search-form label { flex: 1 1 190px; }

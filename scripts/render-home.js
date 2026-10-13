@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Marked } from 'marked';
+import { Marked, Renderer } from 'marked';
 
 const escapeHTML = value => value.replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -22,6 +22,12 @@ export function renderHome(markdown, template) {
   const marked = new Marked({
     gfm: true,
     renderer: {
+      code(token) {
+        // Long command lines scroll horizontally on small screens. Keep that
+        // region reachable by keyboard while retaining Marked's code escaping.
+        return Renderer.prototype.code.call(this, token)
+          .replace('<pre>', '<pre tabindex="0" role="region" aria-label="代码示例">');
+      },
       heading({ tokens, depth, text }) {
         const label = this.parser.parseInline(tokens);
         const slug = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'section';
