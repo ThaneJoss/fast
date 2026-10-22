@@ -71,3 +71,38 @@ test('admin reports request failures and refresh recovers', async ({ page }) => 
   await page.getByRole('button', { name: '刷新数据' }).click();
   await expect(page.locator('#ip-list article').first()).toBeVisible();
 });
+
+test('rejected permission change keeps keyboard retry focus', async ({ page }) => {
+  await page.goto('/admin');
+  await expect(page.locator('#ip-list')).toHaveAttribute('aria-busy', 'false');
+  const ip = await page.locator('#current-ip').textContent();
+  const permission = page.locator(`[data-focus-key="permission:${ip}"]`);
+  await page.route('**/admin/api/ips', route => route.fulfill({
+    status: 503, contentType: 'application/json', body: JSON.stringify({ error: '保存失败' }),
+  }));
+  await permission.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('status').filter({ hasText: '保存失败' })).toBeVisible();
+  await expect(permission).toBeEnabled();
+  await expect(permission).toBeFocused();
+});
+
+test('a completed permission change preserves focus moved during the request', async ({ page }) => {
+  await page.goto('/admin');
+  await expect(page.locator('#ip-list')).toHaveAttribute('aria-busy', 'false');
+  const ip = await page.locator('#current-ip').textContent();
+  const permission = page.locator(`[data-focus-key="permission:${ip}"]`);
+  let releaseRequest;
+  const pending = new Promise(resolve => { releaseRequest = resolve; });
+  await page.route('**/admin/api/ips', async route => {
+    await pending;
+    await route.continue();
+  });
+  await permission.focus();
+  await page.keyboard.press('Enter');
+  await expect(permission).toBeDisabled();
+  await page.getByRole('button', { name: '刷新数据' }).focus();
+  releaseRequest();
+  await expect(permission).toHaveText('放行 IP');
+  await expect(page.getByRole('button', { name: '刷新数据' })).toBeFocused();
+});

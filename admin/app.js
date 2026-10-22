@@ -38,7 +38,10 @@ async function run(control, action) {
   catch (error) { message(error.message, true); }
   finally {
     control.disabled = false;
-    if (hadFocus && !control.isConnected) restoreActionFocus(control.dataset.focusKey);
+    if (hadFocus && document.activeElement === document.body) {
+      if (control.isConnected) control.focus({ preventScroll: true });
+      else restoreActionFocus(control.dataset.focusKey);
+    }
   }
 }
 

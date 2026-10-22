@@ -16,7 +16,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "types": "wrangler types --include-runtime=false",
     "check": "node --check index.js && node --check proxy.js && node --check home.js && node --check scripts/render-home.js && node --check access.js && node --check admin.js && node --check admin/app.js && bash -n setup.sh && wrangler deploy --dry-run",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test:ci": "npm test && npm run check && playwright install --with-deps chromium && npm run test:e2e"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
@@ -26,6 +27,6 @@
     "eslint": "10.12.0",
     "globals": "17.13.0",
     "marked": "18.0.14",
-    "wrangler": "^4.135.0"
+    "wrangler": "^4.151.3"
   }
 }
