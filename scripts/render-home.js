@@ -19,6 +19,7 @@ function safeURL(href, image = false) {
 export function renderHome(markdown, template) {
   const headings = [];
   const ids = new Set(['top', 'main', 'toc-label']);
+  let codeBlockCount = 0;
   const marked = new Marked({
     gfm: true,
     renderer: {
@@ -26,7 +27,7 @@ export function renderHome(markdown, template) {
         // Long command lines scroll horizontally on small screens. Keep that
         // region reachable by keyboard while retaining Marked's code escaping.
         return Renderer.prototype.code.call(this, token)
-          .replace('<pre>', '<pre tabindex="0" role="region" aria-label="代码示例">');
+          .replace('<pre>', `<pre tabindex="0" role="region" aria-label="代码示例 ${++codeBlockCount}">`);
       },
       heading({ tokens, depth, text }) {
         const label = this.parser.parseInline(tokens);

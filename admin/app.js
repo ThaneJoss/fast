@@ -49,8 +49,10 @@ function restoreActionFocus(key) {
   // A refresh replaces IP cards. Restore a removed trigger without moving focus
   // away from another control the user reached while the request was pending.
   if (!key || document.activeElement !== document.body) return;
-  [...document.querySelectorAll('[data-focus-key]')]
-    .find(control => control.dataset.focusKey === key)?.focus({ preventScroll: true });
+  const replacement = [...document.querySelectorAll('[data-focus-key]')]
+    .find(control => control.dataset.focusKey === key);
+  // Permission/group filters can legitimately remove the updated card.
+  (replacement ?? $('#refresh')).focus({ preventScroll: true });
 }
 
 async function api(path, method = 'GET', data) {

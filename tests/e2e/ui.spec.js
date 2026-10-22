@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { noHorizontalOverflow, saveIP } from './helpers.js';
+import { noHorizontalOverflow, origin, saveIP } from './helpers.js';
 
 test.beforeEach(async ({ page, request }, testInfo) => {
   const ip = testInfo.project.name === 'mobile' ? '192.0.2.21' : '192.0.2.20';
@@ -105,4 +105,46 @@ test('a completed permission change preserves focus moved during the request', a
   releaseRequest();
   await expect(permission).toHaveText('放行 IP');
   await expect(page.getByRole('button', { name: '刷新数据' })).toBeFocused();
+});
+
+test('permission changes that remove the filtered card restore a stable focus target', async ({ page }) => {
+  await page.goto('/admin');
+  await expect(page.locator('#ip-list')).toHaveAttribute('aria-busy', 'false');
+  const ip = await page.locator('#current-ip').textContent();
+  await page.locator('#filter-enabled').getByRole('button', { name: '已放行', exact: true }).click();
+  const permission = page.locator(`[data-focus-key="permission:${ip}"]`);
+  await expect(permission).toBeVisible();
+  await permission.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#ip-list')).toHaveAttribute('aria-busy', 'false');
+  await expect(permission).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '刷新数据' })).toBeFocused();
+});
+
+test('profile saves that remove the filtered card restore a stable focus target', async ({ page, request }, testInfo) => {
+  const ip = testInfo.project.name === 'mobile' ? '192.0.2.21' : '192.0.2.20';
+  const name = `focus-${testInfo.project.name}-${Date.now()}`;
+  const response = await request.post('/admin/api/groups', { headers: { Origin: origin }, data: { name } });
+  expect(response.status()).toBe(201);
+  const { id } = await response.json();
+  try {
+    await saveIP(request, { ip, group_id: id });
+    await page.goto('/admin');
+    await expect(page.locator('#ip-list')).toHaveAttribute('aria-busy', 'false');
+    await page.locator('#filter-group').getByRole('button', { name, exact: true }).click();
+    const profile = page.locator(`[data-focus-key="profile:${ip}"]`);
+    await expect(profile).toBeVisible();
+    await profile.focus();
+    await page.keyboard.press('Enter');
+    const editor = page.getByRole('dialog', { name: '分组与备注' });
+    await editor.getByRole('button', { name: '未分组', exact: true }).click();
+    await editor.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(editor).not.toBeVisible();
+    await expect(page.locator('#ip-list')).toHaveAttribute('aria-busy', 'false');
+    await expect(profile).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '刷新数据' })).toBeFocused();
+  } finally {
+    const deleted = await request.delete(`/admin/api/groups/${id}`, { headers: { Origin: origin } });
+    expect(deleted.ok()).toBeTruthy();
+  }
 });
