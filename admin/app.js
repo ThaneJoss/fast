@@ -32,10 +32,25 @@ function message(text, error = false) {
 }
 
 async function run(control, action) {
+  const hadFocus = document.activeElement === control;
   control.disabled = true;
   try { await action(); }
   catch (error) { message(error.message, true); }
-  finally { control.disabled = false; }
+  finally {
+    control.disabled = false;
+    if (hadFocus && document.activeElement === document.body) {
+      if (control.isConnected) control.focus({ preventScroll: true });
+      else restoreActionFocus(control.dataset.focusKey);
+    }
+  }
+}
+
+function restoreActionFocus(key) {
+  // A refresh replaces IP cards. Restore a removed trigger without moving focus
+  // away from another control the user reached while the request was pending.
+  if (!key || document.activeElement !== document.body) return;
+  [...document.querySelectorAll('[data-focus-key]')]
+    .find(control => control.dataset.focusKey === key)?.focus({ preventScroll: true });
 }
 
 async function api(path, method = 'GET', data) {
@@ -224,7 +239,11 @@ function ipCard(row, query) {
       message(`${row.ip} ${row.enabled ? '已取消放行' : '已放行'}`);
     }, 'button' + (row.enabled ? '' : ' primary'));
     toggle.setAttribute('aria-label', `${row.enabled ? '取消放行' : '放行 IP'} ${row.ip}`);
-    actions.append(toggle, button('分组与备注', () => openEditor(row)));
+    toggle.dataset.focusKey = `permission:${row.ip}`;
+    const edit = button('分组与备注', () => openEditor(row));
+    edit.setAttribute('aria-label', `分组与备注 ${row.ip}`);
+    edit.dataset.focusKey = `profile:${row.ip}`;
+    actions.append(toggle, edit);
   }
   const panel = element('div');
   panel.id = `events-${++detailId}`;
@@ -265,9 +284,11 @@ function ipCard(row, query) {
     panel.hidden = !panel.hidden;
     expand.setAttribute('aria-expanded', String(!panel.hidden));
     expand.textContent = panel.hidden ? '查看记录' : '收起记录';
+    expand.setAttribute('aria-label', `${expand.textContent} ${row.ip || '未知 IP'}`);
     if (!panel.hidden && !loaded) await loadEvents();
   }, 'button subtle');
   expand.setAttribute('aria-expanded', 'false');
+  expand.setAttribute('aria-label', `查看记录 ${row.ip || '未知 IP'}`);
   expand.setAttribute('aria-controls', panel.id);
   if (row.request_count) actions.append(expand);
   card.append(actions, panel);
@@ -311,18 +332,22 @@ function renderGroups() {
     const description = element('div');
     description.append(element('h3', group.name), element('p', `${formatNumber(group.member_count)} 个 IP`, 'muted'));
     const actions = element('div', undefined, 'actions');
-    actions.append(button('编辑', () => {
+    const edit = button('编辑', () => {
       $('#group-form').elements.id.value = group.id;
       $('#group-form').elements.name.value = group.name;
       $('#group-form-title').textContent = '编辑分组';
       $('#group-form').elements.name.focus();
-    }), button('删除', async () => {
+    });
+    edit.setAttribute('aria-label', `编辑分组 ${group.name}`);
+    const remove = button('删除', async () => {
       if (!confirm(`删除“${group.name}”？其中的 IP 将移至未分组，访问权限保持不变。`)) return;
       await api(`groups/${group.id}`, 'DELETE');
       if ($('#group-form').elements.id.value === String(group.id)) resetGroupForm();
       await loadState();
       message('分组已删除');
-    }, 'button subtle danger'));
+    }, 'button subtle danger');
+    remove.setAttribute('aria-label', `删除分组 ${group.name}`);
+    actions.append(edit, remove);
     card.append(description, actions);
     return card;
   }) : [element('p', '还没有分组。创建一个，开始整理访问来源。', 'empty')]));
@@ -368,6 +393,7 @@ $('#ip-form').addEventListener('submit', async event => {
     await api('ips', 'PUT', { ip: editingIP, group_id: editingGroup, note: $('#ip-form').elements.note.value });
     $('#ip-editor').close();
     await refresh();
+    restoreActionFocus(`profile:${editingIP}`);
     message('分组与备注已保存');
   } catch (error) {
     $('#editor-error').textContent = error.message;
