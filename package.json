@@ -2,8 +2,14 @@
   "name": "fast",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
-    "test": "node --test",
+    "lint": "eslint . --max-warnings=0 && bash -n setup.sh",
+    "test": "node --test test/*.test.js",
+    "test:e2e": "playwright test",
+    "test:serve": "wrangler d1 migrations apply DB --local --persist-to .wrangler/test-state && wrangler dev --local --ip 127.0.0.1 --port 8789 --persist-to .wrangler/test-state --show-interactive-dev-session=false",
     "build": "node scripts/render-home.js",
     "dev": "wrangler d1 migrations apply DB --local && wrangler dev",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
@@ -13,7 +19,12 @@
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@cloudflare/workers-types": "^5.20260921.1",
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.0",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
     "marked": "18.0.14",
     "wrangler": "^4.151.3"
   }
