@@ -83,7 +83,7 @@ npx playwright install chromium
 npm run test:e2e    # 本地 Worker / D1 与桌面、移动端浏览器验收
 ```
 
-`.github/workflows/ci.yml` 在每个 PR（包括 draft）以及 `main` 推送时调用固定版本的通用 reusable CI，自动发现 lint、test:ci 和 build，并执行依赖安全审计。`npm run test:ci` 依次执行单元测试、Worker 打包预检、Chromium 安装和 Playwright / axe 验收，任一步失败都会使质量门禁失败。浏览器检查包括 IP 放行、分组删除、主页内容协商与 HEAD、错误恢复、键盘焦点、横向溢出和无障碍；本地报告与截图保存在 `playwright-report/` 和 `test-results/`，通用 CI 不自动上传这些文件。项目为 JavaScript，`npm run types` 仅生成绑定声明，不是类型检查；CI 使用 ESLint 和运行时集成测试，不声称提供 TypeScript 检查。
+`.github/workflows/ci.yml` 在每个 PR（包括 draft）以及 `main` 推送时调用固定版本的通用 reusable CI，自动发现已有 lint、test 和 build，并执行依赖安全审计。Worker 打包预检与 Playwright / axe 不属于通用 CI 自动发现范围，需要按上述命令独立执行，不将未执行检查视为通过。浏览器检查包括 IP 放行、分组删除、主页内容协商与 HEAD、错误恢复、键盘焦点、横向溢出和无障碍；本地报告与截图保存在 `playwright-report/` 和 `test-results/`，通用 CI 不自动上传这些文件。项目为 JavaScript，`npm run types` 仅生成绑定声明，不是类型检查；CI 使用 ESLint 和单元测试，不声称提供 TypeScript 或浏览器检查。
 
 浏览器测试只启动 `127.0.0.1:8789` 的 `wrangler dev --local`，迁移和测试数据写入独立的 `.wrangler/test-state`，不会使用日常开发的本地数据库或线上 D1，也不会请求真实代理上游。配置脚本测试把 APT、用户目录与 SSH 写入重定向至临时目录，不执行主机初始化；SSH 专项测试在 root 环境明确跳过，CI 使用普通用户执行。自动质量检查不包含部署、远端迁移或 Cloudflare 凭据。
 
