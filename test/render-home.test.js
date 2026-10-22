@@ -48,5 +48,27 @@ test('allowed links, code blocks and image attributes retain escaped document co
   assert.match(html, /href="\.\/guide"/);
   assert.match(html, /href="mailto:person@example.org"/);
   assert.match(html, /alt="An &amp; image" title="A &amp; B" loading="lazy"/);
-  assert.match(html, /<pre tabindex="0" role="region" aria-label="代码示例"><code class="language-sh">echo &quot;&lt;script&gt;&quot;/);
+  assert.match(html, /<pre tabindex="0" role="region" aria-label="代码示例 1"><code class="language-sh">echo &quot;&lt;script&gt;&quot;/);
+});
+
+test('code regions have unique accessible names that reset for every rendered document', () => {
+  const markdown = [
+    '```bash',
+    'echo first',
+    '```',
+    '',
+    '```javascript',
+    'console.log("second");',
+    '```',
+    '',
+    '    echo third',
+  ].join('\n');
+  const html = renderHome(markdown, template);
+  const labels = [...html.matchAll(/<pre tabindex="0" role="region" aria-label="([^"]+)">/g)]
+    .map(match => match[1]);
+  assert.deepEqual(labels, ['代码示例 1', '代码示例 2', '代码示例 3']);
+
+  const otherDocument = renderHome('```\necho another document\n```', template);
+  assert.match(otherDocument, /aria-label="代码示例 1"/);
+  assert.equal(renderHome(markdown, template), html, 'repeated renders produce the same names');
 });

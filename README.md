@@ -9,13 +9,14 @@ https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 → https://archive.ubuntu.com/ubuntu/dists/noble/InRelease
 ```
 
-- 代理与初始化脚本入口不额外限制 HTTP method；代理请求的方法和请求体原样转发，上游使用 HTTPS。
+- Ubuntu / npm 代理与初始化脚本入口不额外限制 HTTP method；这些代理请求的方法和请求体原样转发，上游使用 HTTPS。
 - 流式传输响应，保留状态码、缓存头和 Range / 条件请求，支持大文件及断点续传。
-- 转发 Cookie、Authorization 等请求头，Host 改为目标源域名及端口；保留上游 Set-Cookie。
-- 白名单内的 HTTP / HTTPS 重定向改写回代理地址，保留端口、用户名和密码；HTTP 目标在下一次代理请求中升级为 HTTPS。其他域名或协议的重定向返回 502。
+- Ubuntu / npm 代理转发 Cookie、Authorization 等请求头，Host 改为目标源域名及端口；保留上游 Set-Cookie。
+- Ubuntu / npm 代理在这三个原有域名之间改写 HTTP / HTTPS 重定向，保留端口、用户名和密码；HTTP 目标在下一次代理请求中升级为 HTTPS。其他域名或协议的重定向返回 502。
+- GitHub、nvm 和 Node 下载使用独立的匿名规则，只开放下文列出的路径和方法，不转发认证头或 Cookie，不返回上游认证挑战或 Set-Cookie；不接受 URL 用户名、密码或显式端口。重定向必须保持 HTTPS、同一上游域名以及允许的路径和方法。
 - 不在 IP 白名单或目标域名白名单内的请求返回 HTTP 403，上游连接失败返回 HTTP 502，D1 校验失败时返回 HTTP 503；这些错误响应体为空，错误由 HTTP 状态码表示。
 - 所有经过 Worker 的请求写入 D1 访问日志，包括拒绝请求和管理请求。日志通过 `waitUntil` 异步写入，不读取或缓冲下载响应体；写入失败输出 Worker 错误日志。
-- 使用原生 `HTMLRewriter` 流式改写 HTML 的 `href`、`src`：`/` 开头的根路径，以及指向白名单域名的 HTTP / HTTPS、`//域名/路径` 地址，改为对应代理地址。普通相对路径、查询参数、锚点和其他域名的地址保持原样。
+- Ubuntu / npm 代理使用原生 `HTMLRewriter` 流式改写 HTML 的 `href`、`src`：`/` 开头的根路径，以及指向这三个原有域名的 HTTP / HTTPS、`//域名/路径` 地址，改为对应代理地址。普通相对路径、查询参数、锚点和其他域名的地址保持原样。Git 和下载文件不做内容改写。
 
 `wrangler.toml` 已声明目标域名、Worker 入口与 D1 绑定 `DB`（数据库名 `fast-access`）。首次上线须先创建数据库并执行迁移。
 
@@ -110,10 +111,111 @@ curl -fsSL https://fast.thanejoss.com/ | sudo bash
 - `hosts/archive.ubuntu.com`
 - `hosts/security.ubuntu.com`
 - `hosts/registry.npmjs.org`
+- `hosts/github.com`
+- `hosts/raw.githubusercontent.com`
+- `hosts/nodejs.org`
 
-文件名就是完整 host，不加扩展名。每个文件导出处理函数，处理该域名的具体逻辑。路由按主机名匹配，支持 `/用户名:密码@域名:端口/路径` 形式。
+文件名就是完整 host，不加扩展名。每个文件导出处理函数，处理该域名的具体逻辑。原有 Ubuntu / npm 路由按主机名匹配，支持 `/用户名:密码@域名:端口/路径` 形式；新增的三个匿名路由只接受完整的原样小写域名。
 
-## npm / Node
+## GitHub 公共仓库
+
+在 `/admin` 放行当前 IP 后，将公共仓库的 `https://github.com/username/project` 换成 `https://fast.thanejoss.com/github.com/username/project`；末尾有无 `.git` 都支持。例如：
+
+```bash
+git clone https://fast.thanejoss.com/github.com/nvm-sh/nvm.git
+git -C nvm fetch origin
+```
+
+只开放 Git smart HTTP 的 `GET /用户名/仓库/info/refs?service=git-upload-pack` 和 `POST /用户名/仓库/git-upload-pack`。POST 要求 `application/x-git-upload-pack-request`，请求体与响应体流式传输，保留 `Git-Protocol` 以支持协议协商；Git 响应不缓存。发现阶段的仓库规范化或改名重定向会改写回代理；POST 仅接受保持方法的 307 / 308 重定向。
+
+不支持 push、私有仓库认证、仓库网页、Git LFS 或 GitHub Release 附件，也不会自动替换子模块里的 URL。上游 401 / 407 转为 403，避免提示输入 GitHub 凭据。
+
+## 通过代理安装 nvm 与 Node LTS
+
+以下命令用于 **Linux / Ubuntu 的 Bash**，以日常用户执行，**不要加 sudo**；需要已有 `bash`、`curl` 和 `git`。WSL 的 Linux Bash 可以使用，原生 Windows 的 PowerShell / CMD 不支持。先在 `/admin` 放行当前 IP，并在同一个 Bash 会话中依次执行下面三步。
+
+第一步安装 nvm。保留已有 `NVM_DIR`；未设置时使用官方的 XDG / `~/.nvm` 默认目录。已有 `nvm.sh` 时跳过安装，不更新现有 nvm；目标路径已存在但缺少 `nvm.sh` 时停止，先检查该目录再继续。
+
+```bash
+if [ -z "${NVM_DIR:-}" ]; then
+  if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    NVM_DIR="$XDG_CONFIG_HOME/nvm"
+  else
+    NVM_DIR="$HOME/.nvm"
+  fi
+fi
+export NVM_DIR
+
+(
+  set -e
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    printf '使用已有 nvm：%s\n' "$NVM_DIR"
+  else
+    if [ -e "$NVM_DIR" ] || [ -L "$NVM_DIR" ]; then
+      printf '路径已存在但缺少 nvm.sh，请先检查：%s\n' "$NVM_DIR" >&2
+      exit 1
+    fi
+    fast_nvm_installer=$(mktemp)
+    trap 'rm -f -- "$fast_nvm_installer"' EXIT
+    curl -fsSL --proto '=https' --proto-redir '=https' \
+      https://fast.thanejoss.com/raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh \
+      -o "$fast_nvm_installer"
+    mkdir -p -- "$NVM_DIR"
+    PROFILE=/dev/null METHOD=git \
+      NVM_SOURCE=https://fast.thanejoss.com/github.com/nvm-sh/nvm.git \
+      NVM_INSTALL_VERSION= NODE_VERSION= \
+      bash "$fast_nvm_installer"
+  fi
+)
+```
+
+使用固定版本的[官方 v0.40.8 安装器](https://github.com/nvm-sh/nvm/blob/v0.40.8/install.sh)，通过 `METHOD=git` 和代理 `NVM_SOURCE` 下载完整 nvm 仓库，包含 `nvm.sh`、`nvm-exec` 与 `bash_completion`。`NVM_INSTALL_VERSION` 留空时采用该固定安装器内的版本，避免额外的直连版本探测；清空 `NODE_VERSION` 禁止安装器顺带安装 Node。`PROFILE=/dev/null` 让启动配置由下一步统一追加。
+
+第二步持久化配置。仅在 `~/.bashrc` 中追加一次独立区块，已有文件先备份为 `~/.bashrc.fast-nvm.时间戳.bak`，不替换原内容。保留已有 `NVM_DIR` 和 `NVM_NODEJS_ORG_MIRROR`；未设置镜像时使用本代理。已有 nvm 加载逻辑继续生效。
+
+```bash
+(
+  set -e
+  if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+    printf '请先完成 nvm 安装。\n' >&2
+    exit 1
+  fi
+  if ! grep -Fqx '# >>> fast nvm proxy >>>' "$HOME/.bashrc" 2>/dev/null; then
+    if [ -e "$HOME/.bashrc" ]; then
+      cp -p -- "$HOME/.bashrc" "$HOME/.bashrc.fast-nvm.$(date +%Y%m%d%H%M%S).bak"
+    fi
+    {
+      printf '\n# >>> fast nvm proxy >>>\n'
+      printf '[ -n "${NVM_DIR:-}" ] || NVM_DIR=%q\n' "$NVM_DIR"
+      cat <<'EOF'
+export NVM_DIR
+export NVM_NODEJS_ORG_MIRROR="${NVM_NODEJS_ORG_MIRROR:-https://fast.thanejoss.com/nodejs.org/dist}"
+if ! command -v nvm >/dev/null 2>&1 && [ -s "$NVM_DIR/nvm.sh" ]; then
+  . "$NVM_DIR/nvm.sh"
+fi
+# <<< fast nvm proxy <<<
+EOF
+    } >> "$HOME/.bashrc"
+  fi
+)
+```
+
+配置对后续读取 `~/.bashrc` 的交互 Bash 生效，包括 Ubuntu 默认配置。若自行定制了 Bash 登录文件，使其不再读取 `~/.bashrc`，还需让该登录文件加载此区块。
+
+第三步在当前 Bash 加载 nvm，并通过代理安装 Node LTS：
+
+```bash
+export NVM_NODEJS_ORG_MIRROR="${NVM_NODEJS_ORG_MIRROR:-https://fast.thanejoss.com/nodejs.org/dist}"
+. "$NVM_DIR/nvm.sh" --no-use
+NVM_NODEJS_ORG_MIRROR=https://fast.thanejoss.com/nodejs.org/dist \
+  nvm install --lts --skip-default-packages
+```
+
+最后一条命令单次明确选择本代理，即使原来设置了其他镜像，也不改写该设置。它在当前 Bash 中启用安装的 LTS，保留其他已安装的 Node 版本与已有的 `default` 别名；没有默认别名时由 nvm 创建。`--skip-default-packages` 跳过自动安装全局包，保留原有 `default-packages` 文件。
+
+Node 镜像开放 `https://fast.thanejoss.com/nodejs.org/dist` 下的 GET / HEAD 下载，覆盖版本索引、校验和、二进制及源码包，保留 Range 和条件请求。raw 入口仅开放 `nvm-sh/nvm/v主版本.次版本.补丁版本/` 下的 `install.sh`、`nvm.sh`、`nvm-exec`、`bash_completion`，不代理其他 raw 文件或分支。两者均不接受查询参数，认证头和 Cookie 不会转发。
+
+## npm 源
 
 在 `/admin` 放行当前 IP 后，运行上面的主页脚本即可。npm registry 根据请求域名生成，例如 `https://fast.thanejoss.com/registry.npmjs.org/`。
 
