@@ -22,7 +22,8 @@ export default {
           decision = 'allowed';
           response = await proxy.fetch(request, env);
         } else {
-          response = new Response(null, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+          // Rejected IPs must not consume D1 writes for access logs.
+          return new Response(null, { status: 403, headers: { 'Cache-Control': 'no-store' } });
         }
       }
     } catch (error) {
