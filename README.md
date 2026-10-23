@@ -15,7 +15,7 @@ https://fast.thanejoss.com/archive.ubuntu.com/ubuntu/dists/noble/InRelease
 - Ubuntu / npm 代理在这三个原有域名之间改写 HTTP / HTTPS 重定向，保留端口、用户名和密码；HTTP 目标在下一次代理请求中升级为 HTTPS。其他域名或协议的重定向返回 502。
 - GitHub、nvm 和 Node 下载使用独立的匿名规则，只开放下文列出的路径和方法，不转发认证头或 Cookie，不返回上游认证挑战或 Set-Cookie；不接受 URL 用户名、密码或显式端口。重定向必须保持 HTTPS、同一上游域名以及允许的路径和方法。
 - 不在 IP 白名单或目标域名白名单内的请求返回 HTTP 403，上游连接失败返回 HTTP 502，D1 校验失败时返回 HTTP 503；这些错误响应体为空，错误由 HTTP 状态码表示。
-- 所有经过 Worker 的请求写入 D1 访问日志，包括拒绝请求和管理请求。日志通过 `waitUntil` 异步写入，不读取或缓冲下载响应体；写入失败输出 Worker 错误日志。
+- 通过 IP 白名单的请求、管理请求及异常写入 D1 访问日志；被 IP 白名单拒绝的请求直接返回 403，不写访问日志。日志通过 `waitUntil` 异步写入，不读取或缓冲下载响应体；写入失败输出 Worker 错误日志。
 - Ubuntu / npm 代理使用原生 `HTMLRewriter` 流式改写 HTML 的 `href`、`src`：`/` 开头的根路径，以及指向这三个原有域名的 HTTP / HTTPS、`//域名/路径` 地址，改为对应代理地址。普通相对路径、查询参数、锚点和其他域名的地址保持原样。Git 和下载文件不做内容改写。
 
 `wrangler.toml` 已声明目标域名、Worker 入口与 D1 绑定 `DB`（数据库名 `fast-access`）。首次上线须先创建数据库并执行迁移。
@@ -37,7 +37,7 @@ Markdown 在构建时转为 HTML，运行时不加载 Markdown 库或外部 CDN�
 - **路径标签**：根据请求路径自动标记 Ubuntu、npm、初始化脚本、管理后台或其他路径，显示在 IP 汇总卡片与逐条日志中，无需维护分类或匹配规则。历史记录同样适用。
 - **访问日志**：默认每个 IP 一张汇总卡片，展开查看逐条请求，每次加载 50 条。可用平铺选项组合筛选当前访问权限、当前 IP 分组、路径标签、访问结果和最近 24 小时 / 7 天 / 30 天，支持搜索 IP、备注与路径片段。
 
-两个页面均先对全部匹配记录按 IP 汇总，再按最近访问排序，每页 20 个 IP；翻页和展开明细沿用同一个日志边界，点击“刷新数据”查看新请求。设置分组与备注不会改变访问权限。历史日志保留访问时的分组名称；筛选分组按 IP 当前归属，便于管理。页面沿用 webapps 的蓝白配色、卡片和标签样式。
+两个页面均先对全部匹配记录按 IP 汇总，再按最近访问排序，每页 20 个 IP；翻页和展开明细沿用同一个日志边界，点击“刷新数据”查看新请求。设置分组与备注不会改变访问权限。历史日志保留访问时的分组名称；筛选分组按 IP 当前归属，便于管理。拒绝计数和筛选仅展示已有历史记录，新的 IP 白名单拒绝不再记录。新 IP 可先通过 Cloudflare Access 打开 `/admin`，再点击“刷新数据”，从管理访问记录中放行该 IP。页面沿用 webapps 的蓝白配色、卡片和标签样式。
 
 IP 使用 Cloudflare 的 `CF-Connecting-IP`，不接受 `X-Forwarded-For` 或 `X-Real-IP` 作为白名单依据。支持单个完整 IP，IPv6 自动规范化；不支持 CIDR 网段。若域名启用了 Pseudo IPv4 的 Overwrite Headers 模式，建议改为 Off / Add Header，以便按真实 IPv6 管理白名单。
 
@@ -70,7 +70,7 @@ npm run db:migrate:remote
 npm run deploy
 ```
 
-若 `fast-access` 已存在，使用 `npx wrangler d1 list` 查到其 ID 后更新现有绑定，无需重复创建。先应用远端迁移，再发布 Worker；初始 IP 白名单为空，上线后从 `/admin` 的访问记录中放行 IP。
+若 `fast-access` 已存在，使用 `npx wrangler d1 list` 查到其 ID 后更新现有绑定，无需重复创建。先应用远端迁移，再发布 Worker；初始 IP 白名单为空，上线后通过 Cloudflare Access 打开 `/admin` 并刷新数据，从管理访问记录中放行 IP。
 
 从旧版升级时也需要先运行 `npm run db:migrate:remote`：`0002_log_path_tags.sql` 为新旧日志增加自动路径标签与索引，兼容旧 Worker 继续写入。旧路径分类数据保留在数据库中，但不再用于管理或日志分类。
 
